@@ -222,9 +222,15 @@ class MainActivity : FlutterActivity() {
                     val endY = call.argument<Double>("endY")?.toFloat() ?: 0f
                     val service = ScreenActionService.instance
                     if (service != null) {
-                        service.performSwipe(startX, startY, endX, endY) { success ->
-                            result.success(success)
-                        }
+                        service.performSwipe(
+                            startX,
+                            startY,
+                            endX,
+                            endY,
+                            callback = { success ->
+                                result.success(success)
+                            }
+                        )
                     } else {
                         result.error("NO_SERVICE", "Accessibility service not enabled", null)
                     }
