@@ -1,0 +1,11 @@
+{
+  "name": "lucy",
+  "version": "1.0.0",
+  "description": "Lucy - Screen-Aware AI Assistant",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "flutter build web"
+  }
+}

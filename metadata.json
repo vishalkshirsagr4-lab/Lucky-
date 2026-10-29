@@ -1,0 +1,11 @@
+{
+  "name": "Lucy",
+  "description": "Screen-aware AI assistant with voice commands and screen analysis powered by Gemini",
+  "requestFramePermissions": [
+    "microphone",
+    "display-capture"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
