@@ -1,6 +1,3 @@
-import 'dart:async';
-import 'package:flutter/foundation.dart';
-
 /// Structured result returned from every tool execution.
 class ToolResult {
   const ToolResult({

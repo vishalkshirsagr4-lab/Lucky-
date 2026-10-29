@@ -9,7 +9,6 @@ import 'local_model_service.dart';
 import 'memory_service.dart';
 import 'reminder_service.dart';
 import 'safety_confirmation_service.dart';
-import 'tool_registry.dart';
 import 'voice_service.dart';
 import 'screen_capture_service.dart';
 
