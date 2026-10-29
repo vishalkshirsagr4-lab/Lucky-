@@ -163,7 +163,6 @@ class AiService {
 
   final LocalModelService localModel;
   GenerativeModel? _model;
-  ChatSession? _chat;
   String? _apiKey;
   AiProviderMode _providerMode = AiProviderMode.localFirst;
   bool _cloudFallbackEnabled = false;
@@ -336,7 +335,6 @@ RESPONSE FORMAT (strict JSON, one action only):
       generationConfig: GenerationConfig(responseMimeType: 'application/json'),
       systemInstruction: Content.system(_systemPrompt),
     );
-    _chat = _model!.startChat();
   }
 
   /// Send a message with an optional screenshot, screen size, and UI tree.
@@ -472,8 +470,6 @@ Example: {"actions":[],"speak":"I can help with that.","done":true,"lang":"en"}
 
   /// Reset chat history for a fresh conversation.
   void resetChat() {
-    if (_model != null) {
-      _chat = _model!.startChat();
-    }
+    // Gemini chat history is not used by Lucy's local-first agent.
   }
 }
