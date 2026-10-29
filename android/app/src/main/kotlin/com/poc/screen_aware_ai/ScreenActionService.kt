@@ -72,12 +72,71 @@ class ScreenActionService : AccessibilityService() {
     }
 
     fun performTap(x: Float, y: Float, callback: (Boolean) -> Unit) {
+        // Prefer the accessibility node action: activating the node directly
+        // is faster than synthesizing a gesture and matches what a touch would
+        // trigger. Fall back to a gesture when no enabled clickable node owns
+        // the point (custom touch handlers, icon-only views, etc.).
+        if (tryActivateNodeAt(x, y)) {
+            callback(true)
+            return
+        }
+
         val path = Path()
         path.moveTo(x, y)
 
         val gestureBuilder = GestureDescription.Builder()
         gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 100))
         dispatchGestureAsync(gestureBuilder.build(), callback)
+    }
+
+    /**
+     * Activate the enabled clickable node covering (x, y), if there is one.
+     * Returns true only when the node accepted ACTION_CLICK, so callers keep
+     * the coordinate gesture as a fallback instead of losing the tap.
+     */
+    private fun tryActivateNodeAt(x: Float, y: Float): Boolean {
+        val rootNode = rootInActiveWindow ?: return false
+        var target: AccessibilityNodeInfo? = null
+        return try {
+            target = findClickableAt(rootNode, x, y)
+            if (target == null) {
+                false
+            } else {
+                target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "tryActivateNodeAt failed, falling back to gesture", e)
+            false
+        } finally {
+            if (target != null && target !== rootNode) {
+                target.recycle()
+            }
+            rootNode.recycle()
+        }
+    }
+
+    /** Deepest visible enabled node whose bounds contain the point. */
+    private fun findClickableAt(
+        node: AccessibilityNodeInfo,
+        x: Float,
+        y: Float,
+    ): AccessibilityNodeInfo? {
+        if (!node.isVisibleToUser) return null
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        val inside = bounds.contains(x.toInt(), y.toInt())
+        if (inside && node.isClickable && node.isEnabled) {
+            return node
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findClickableAt(child, x, y)
+            if (result != null) {
+                return result
+            }
+            child.recycle()
+        }
+        return null
     }
 
     fun performLongPress(x: Float, y: Float, callback: (Boolean) -> Unit) {
@@ -206,6 +265,12 @@ class ScreenActionService : AccessibilityService() {
                     if (isClickable) put("clickable", true)
                     if (isEditable) put("editable", true)
                     if (isFocused) put("focused", true)
+                    // Disabled state matters: the agent must not target a
+                    // control that cannot react. Only emitted when false to
+                    // keep the observation compact.
+                    if (!node.isEnabled) put("enabled", false)
+                    // Password fields are sensitive: never echo their value.
+                    if (node.isPassword) put("password", true)
                     if (isCheckable) {
                         put("checkable", true)
                         put("checked", node.isChecked)
