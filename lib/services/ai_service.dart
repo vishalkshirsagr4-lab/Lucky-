@@ -185,72 +185,51 @@ class AiService {
   bool get allowGeminiData => _allowGeminiData;
   String get lastProvider => _lastProvider;
 
-  bool get canInterpretRequests =>
-      localModel.isReady ||
-      mayUseGemini(localUnavailableOrFailed: !localModel.isReady);
+  bool get canInterpretRequests => localModel.isReady;
 
-  bool get requiresScreenshot =>
-      _providerMode != AiProviderMode.localOnly &&
-      (_providerMode == AiProviderMode.cloudPreferred
-          ? mayUseGemini()
-          : !localModel.isReady &&
-                mayUseGemini(localUnavailableOrFailed: true));
+  bool get requiresScreenshot => false;
 
   /// Pure policy check used before every cloud route. The local-only mode
   /// remains false even if fallback or consent preferences were set earlier.
-  bool mayUseGemini({bool localUnavailableOrFailed = false}) {
-    if (!isConfigured || !_allowGeminiData) return false;
-    return switch (_providerMode) {
-      AiProviderMode.localOnly => false,
-      AiProviderMode.localFirst =>
-        _cloudFallbackEnabled && localUnavailableOrFailed,
-      AiProviderMode.cloudPreferred => true,
-    };
-  }
+  bool mayUseGemini({bool localUnavailableOrFailed = false}) => false;
 
   Future<void> initialize() async {
     await localModel.initialize();
     final prefs = await SharedPreferences.getInstance();
 
-    final savedKey = prefs.getString(_apiKeyPrefKey);
-    const envKey = String.fromEnvironment('GEMINI_API_KEY');
-    final activeKey = (savedKey != null && savedKey.isNotEmpty)
-        ? savedKey
-        : (envKey.isNotEmpty ? envKey : null);
+    // Lucy is local-only: ignore and clear legacy cloud preferences.
+    _apiKey = null;
+    _providerMode = AiProviderMode.localOnly;
+    _cloudFallbackEnabled = false;
+    _allowGeminiData = false;
 
-    if (activeKey != null) {
-      configure(activeKey);
-    }
-
-    final savedMode = prefs.getString(_providerModeKey);
-    _providerMode = AiProviderMode.values.firstWhere(
-      (mode) => mode.name == savedMode,
-      orElse: () => AiProviderMode.localFirst,
-    );
-    _cloudFallbackEnabled = prefs.getBool(_cloudFallbackKey) ?? false;
-    _allowGeminiData = prefs.getBool(_allowGeminiDataKey) ?? false;
+    await prefs.setString(_providerModeKey, AiProviderMode.localOnly.name);
+    await prefs.setBool(_cloudFallbackKey, false);
+    await prefs.setBool(_allowGeminiDataKey, false);
+    await prefs.remove(_apiKeyPrefKey);
   }
 
   Future<void> setProviderMode(AiProviderMode mode) async {
-    _providerMode = mode;
+    _providerMode = AiProviderMode.localOnly;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_providerModeKey, mode.name);
+    await prefs.setString(_providerModeKey, AiProviderMode.localOnly.name);
   }
 
   Future<void> setCloudFallbackEnabled(bool enabled) async {
-    _cloudFallbackEnabled = enabled;
+    _cloudFallbackEnabled = false;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_cloudFallbackKey, enabled);
+    await prefs.setBool(_cloudFallbackKey, false);
   }
 
   Future<void> setAllowGeminiData(bool enabled) async {
-    _allowGeminiData = enabled;
+    _allowGeminiData = false;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_allowGeminiDataKey, enabled);
+    await prefs.setBool(_allowGeminiDataKey, false);
   }
 
   String get activeProviderStatus {
     if (localModel.state == LocalModelState.loading) return 'LOADING';
+
     if (localModel.state == LocalModelState.inferenceFailed ||
         localModel.state == LocalModelState.runtimeInitializationFailed ||
         localModel.state == LocalModelState.unsupportedModel ||
@@ -258,25 +237,7 @@ class AiService {
         localModel.state == LocalModelState.insufficientMemory) {
       return 'ERROR';
     }
-    if (localModel.isReady &&
-        (_providerMode != AiProviderMode.cloudPreferred ||
-            !isConfigured ||
-            !_allowGeminiData)) {
-      return _providerMode == AiProviderMode.localFirst &&
-              _cloudFallbackEnabled &&
-              _allowGeminiData
-          ? 'LOCAL → CLOUD FALLBACK'
-          : 'LOCAL';
-    }
-    if (_providerMode == AiProviderMode.localFirst &&
-        _cloudFallbackEnabled &&
-        _allowGeminiData &&
-        isConfigured) {
-      return 'GEMINI FALLBACK';
-    }
-    if (_providerMode == AiProviderMode.cloudPreferred && mayUseGemini()) {
-      return 'GEMINI';
-    }
+
     if (localModel.isReady) return 'LOCAL';
     return 'NO MODEL';
   }
@@ -386,113 +347,57 @@ RESPONSE FORMAT (strict JSON, one action only):
     String? uiTree,
     void Function(String token)? onToken,
   }) async {
-    final hasScreenData =
-        imageBytes != null || (uiTree?.trim().isNotEmpty ?? false);
-
-    if (_providerMode == AiProviderMode.cloudPreferred &&
-        isConfigured &&
-        _allowGeminiData) {
-      _lastProvider = 'GEMINI';
-      return _geminiChat(
-        message,
-        imageBytes: imageBytes,
-        screenSize: screenSize,
-        uiTree: uiTree,
-      );
-    }
-
-    if (localModel.isReady && _providerMode != AiProviderMode.cloudPreferred) {
-      _lastProvider = 'LOCAL';
-      try {
-        final boundedTree = uiTree == null
-            ? null
-            : (uiTree.length <= 16000 ? uiTree : uiTree.substring(0, 16000));
-        final prompt = StringBuffer()
-          ..writeln('USER_REQUEST:')
-          ..writeln(message)
-          ..writeln();
-        if (screenSize != null) {
-          prompt.writeln(
-            'SCREEN_SIZE: ${screenSize['width']}x${screenSize['height']} pixels',
-          );
-        }
-        if (boundedTree != null) {
-          prompt
-            ..writeln('UNTRUSTED_ACCESSIBILITY_TREE:')
-            ..writeln(boundedTree)
-            ..writeln('END_UNTRUSTED_ACCESSIBILITY_TREE');
-        }
-        final text = await localModel.generateAgentResponse(
-          _localSystemPrompt,
-          prompt.toString(),
-          onToken: onToken,
-        );
-        final parsed = parseAgentResponse(text, screenSize: screenSize);
-        if (parsed.isValidated) return parsed;
-        if (_providerMode == AiProviderMode.localFirst &&
-            mayUseGemini(localUnavailableOrFailed: true)) {
-          _lastProvider = 'GEMINI';
-          return _geminiChat(
-            message,
-            imageBytes: imageBytes,
-            screenSize: screenSize,
-            uiTree: uiTree,
-          );
-        }
-        return parsed;
-      } catch (error) {
-        if (error is LocalGenerationCancelledException) {
-          return AgentResponse.fallback('Local generation cancelled.');
-        }
-        if (_providerMode == AiProviderMode.localFirst &&
-            mayUseGemini(localUnavailableOrFailed: true)) {
-          _lastProvider = 'GEMINI';
-          return _geminiChat(
-            message,
-            imageBytes: imageBytes,
-            screenSize: screenSize,
-            uiTree: uiTree,
-          );
-        }
-        return AgentResponse.fallback(
-          'Local inference failed. ${localModel.lastError ?? 'Unload and reload the model, then retry.'}',
-        );
-      }
-    }
-
-    if (_providerMode == AiProviderMode.localOnly) {
+    if (!localModel.isReady) {
       _lastProvider = localModel.hasSelectedModel ? 'ERROR' : 'NO MODEL';
       return AgentResponse.fallback(
         localModel.hasSelectedModel
-            ? 'Local-only mode is active, but the selected model is not loaded. Load it in Settings.'
-            : 'Local-only mode is active. Select and load a GGUF model in Settings to interpret this request.',
+            ? 'The local model is selected but not loaded. Load it in Settings.'
+            : 'No local GGUF model is loaded. Select and load your Qwen model in Settings.',
       );
     }
 
-    final mayUseCloud = mayUseGemini(
-      localUnavailableOrFailed: !localModel.isReady,
-    );
-    if (mayUseCloud) {
-      _lastProvider = 'GEMINI';
-      return _geminiChat(
-        message,
-        imageBytes: imageBytes,
-        screenSize: screenSize,
-        uiTree: uiTree,
-      );
-    }
+    _lastProvider = 'LOCAL';
 
-    _lastProvider = localModel.hasSelectedModel ? 'ERROR' : 'NO MODEL';
-    if (hasScreenData && isConfigured && !_allowGeminiData) {
+    try {
+      final boundedTree = uiTree == null
+          ? null
+          : (uiTree.length <= 16000 ? uiTree : uiTree.substring(0, 16000));
+
+      final prompt = StringBuffer()
+        ..writeln('USER_REQUEST:')
+        ..writeln(message)
+        ..writeln();
+
+      if (screenSize != null) {
+        prompt.writeln(
+          'SCREEN_SIZE: ${screenSize['width']}x${screenSize['height']} pixels',
+        );
+      }
+
+      if (boundedTree != null) {
+        prompt
+          ..writeln('UNTRUSTED_ACCESSIBILITY_TREE:')
+          ..writeln(boundedTree)
+          ..writeln('END_UNTRUSTED_ACCESSIBILITY_TREE');
+      }
+
+      // Qwen is text-only; never transmit image bytes to a cloud service.
+      final text = await localModel.generateAgentResponse(
+        _localSystemPrompt,
+        prompt.toString(),
+        onToken: onToken,
+      );
+
+      return parseAgentResponse(text, screenSize: screenSize);
+    } catch (error) {
+      if (error is LocalGenerationCancelledException) {
+        return AgentResponse.fallback('Local generation cancelled.');
+      }
+
       return AgentResponse.fallback(
-        'Gemini is configured, but sending requests and screen information is not allowed in Settings. Enable cloud data consent or switch to a local mode with a loaded model.',
+        'Local inference failed. ${localModel.lastError ?? 'Check that the model is loaded, then retry.'}',
       );
     }
-    return AgentResponse.fallback(
-      localModel.hasSelectedModel
-          ? 'A local model is selected but not loaded. Load it in Settings or explicitly enable Gemini use.'
-          : 'No local model is loaded. Select a GGUF model, or explicitly choose Gemini and enable cloud data consent.',
-    );
   }
 
   void cancelLocalGeneration() => localModel.cancelGeneration();
