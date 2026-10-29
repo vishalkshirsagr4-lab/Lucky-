@@ -33,26 +33,22 @@ void main() {
     },
   );
 
-  test(
-    'Local First requires fallback, consent, and local unavailability',
-    () async {
-      final ai = AiService(LocalModelService(ScreenCaptureManager()));
-      await ai.initialize();
-      ai.configure('test-key');
-      await ai.setProviderMode(AiProviderMode.localFirst);
-      await ai.setAllowGeminiData(true);
+  test('Local First never permits Gemini in local-only mode', () async {
+    final ai = AiService(LocalModelService(ScreenCaptureManager()));
+    await ai.initialize();
+    ai.configure('test-key');
+    await ai.setProviderMode(AiProviderMode.localFirst);
+    await ai.setAllowGeminiData(true);
 
-      expect(ai.mayUseGemini(localUnavailableOrFailed: true), isFalse);
-      await ai.setCloudFallbackEnabled(true);
-      expect(ai.mayUseGemini(), isFalse);
-      expect(ai.mayUseGemini(localUnavailableOrFailed: true), isTrue);
+    expect(ai.mayUseGemini(localUnavailableOrFailed: true), isFalse);
+    await ai.setCloudFallbackEnabled(true);
+    expect(ai.mayUseGemini(localUnavailableOrFailed: true), isFalse);
 
-      await ai.setAllowGeminiData(false);
-      expect(ai.mayUseGemini(localUnavailableOrFailed: true), isFalse);
-    },
-  );
+    await ai.setAllowGeminiData(false);
+    expect(ai.mayUseGemini(localUnavailableOrFailed: true), isFalse);
+  });
 
-  test('Cloud Preferred still requires explicit cloud-data consent', () async {
+  test('Cloud Preferred remains disabled in local-only mode', () async {
     final ai = AiService(LocalModelService(ScreenCaptureManager()));
     await ai.initialize();
     ai.configure('test-key');
@@ -60,7 +56,7 @@ void main() {
 
     expect(ai.mayUseGemini(), isFalse);
     await ai.setAllowGeminiData(true);
-    expect(ai.mayUseGemini(), isTrue);
+    expect(ai.mayUseGemini(), isFalse);
   });
 
   test('screenshots are captured only for a permitted cloud route', () async {
@@ -72,7 +68,7 @@ void main() {
     await ai.setProviderMode(AiProviderMode.cloudPreferred);
     expect(ai.requiresScreenshot, isFalse);
     await ai.setAllowGeminiData(true);
-    expect(ai.requiresScreenshot, isTrue);
+    expect(ai.requiresScreenshot, isFalse);
 
     await ai.setProviderMode(AiProviderMode.localOnly);
     expect(ai.requiresScreenshot, isFalse);
