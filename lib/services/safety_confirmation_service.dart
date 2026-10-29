@@ -72,7 +72,9 @@ class SafetyConfirmationService extends ChangeNotifier {
         'pay',
         'delete',
       ];
-      if (sensitiveKeywords.any((kw) => fieldHint.contains(kw) || text.contains(kw))) {
+      if (sensitiveKeywords.any(
+        (kw) => fieldHint.contains(kw) || text.contains(kw),
+      )) {
         return true;
       }
     }
@@ -100,7 +102,10 @@ class SafetyConfirmationService extends ChangeNotifier {
   }
 
   /// Categorize an action into a [HighImpactCategory] and extract details for display.
-  PendingActionConfirmation createConfirmation(AgentAction action, {String? focusedFieldHint}) {
+  PendingActionConfirmation createConfirmation(
+    AgentAction action, {
+    String? focusedFieldHint,
+  }) {
     final type = action.type.toLowerCase();
     final params = action.params;
     final id = 'confirm_${DateTime.now().millisecondsSinceEpoch}';
@@ -110,29 +115,37 @@ class SafetyConfirmationService extends ChangeNotifier {
     String description;
     final details = <String, String>{};
 
-    if (type == 'send_message' || (type == 'type' && (params['package']?.toString().contains('messaging') ?? false))) {
+    if (type == 'send_message' ||
+        (type == 'type' &&
+            (params['package']?.toString().contains('messaging') ?? false))) {
       category = HighImpactCategory.sendMessage;
       title = 'Send Message?';
       description = 'Lucy is about to send a message.';
-      if (params.containsKey('recipient')) details['Recipient'] = params['recipient'].toString();
-      if (params.containsKey('text')) details['Message'] = params['text'].toString();
+      if (params.containsKey('recipient'))
+        details['Recipient'] = params['recipient'].toString();
+      if (params.containsKey('text'))
+        details['Message'] = params['text'].toString();
     } else if (type == 'send_email') {
       category = HighImpactCategory.sendEmail;
       title = 'Send Email?';
       description = 'Lucy is about to send an email.';
       if (params.containsKey('to')) details['To'] = params['to'].toString();
-      if (params.containsKey('subject')) details['Subject'] = params['subject'].toString();
+      if (params.containsKey('subject'))
+        details['Subject'] = params['subject'].toString();
     } else if (type == 'make_call') {
       category = HighImpactCategory.makeCall;
       title = 'Make Phone Call?';
       description = 'Lucy is about to place a phone call.';
-      if (params.containsKey('phone')) details['Phone'] = params['phone'].toString();
+      if (params.containsKey('phone'))
+        details['Phone'] = params['phone'].toString();
     } else if (type == 'delete_data' || type == 'clear_all') {
       category = HighImpactCategory.deleteData;
       title = 'Delete Data?';
       description = 'This operation may permanently delete data.';
-      if (params.containsKey('target')) details['Target'] = params['target'].toString();
-    } else if (type == 'open_app' && (params['package']?.toString().contains('pay') ?? false)) {
+      if (params.containsKey('target'))
+        details['Target'] = params['target'].toString();
+    } else if (type == 'open_app' &&
+        (params['package']?.toString().contains('pay') ?? false)) {
       category = HighImpactCategory.financial;
       title = 'Open Payment App?';
       description = 'Lucy is about to open a financial application.';
@@ -157,7 +170,8 @@ class SafetyConfirmationService extends ChangeNotifier {
 
   /// Request confirmation from the user. Returns a Future that completes with true if approved, false otherwise.
   Future<bool> requestConfirmation(PendingActionConfirmation confirmation) {
-    if (_confirmationCompleter != null && !_confirmationCompleter!.isCompleted) {
+    if (_confirmationCompleter != null &&
+        !_confirmationCompleter!.isCompleted) {
       _confirmationCompleter!.complete(false);
     }
     _pendingConfirmation = confirmation;
@@ -169,7 +183,8 @@ class SafetyConfirmationService extends ChangeNotifier {
 
   /// Submit the user's decision (called from the UI).
   void resolveConfirmation(bool approved) {
-    if (_confirmationCompleter != null && !_confirmationCompleter!.isCompleted) {
+    if (_confirmationCompleter != null &&
+        !_confirmationCompleter!.isCompleted) {
       _confirmationCompleter!.complete(approved);
     }
     _pendingConfirmation = null;

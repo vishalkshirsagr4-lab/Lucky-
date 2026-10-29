@@ -18,12 +18,12 @@ class ToolResult {
   final Map<String, dynamic> data;
 
   Map<String, dynamic> toJson() => {
-        'success': success,
-        'action': action,
-        'verified': verified,
-        'message': message,
-        'data': data,
-      };
+    'success': success,
+    'action': action,
+    'verified': verified,
+    'message': message,
+    'data': data,
+  };
 
   @override
   String toString() =>
@@ -48,7 +48,10 @@ class ToolDefinition {
   final bool requiresPermission;
   final Duration timeout;
 
-  bool validateParameters(Map<String, dynamic> params, StringBuffer errorReason) {
+  bool validateParameters(
+    Map<String, dynamic> params,
+    StringBuffer errorReason,
+  ) {
     for (final req in requiredParameters) {
       if (!params.containsKey(req) || params[req] == null) {
         errorReason.write('Missing required parameter: "$req". ');
@@ -65,13 +68,19 @@ class ToolRegistry {
     'open_app': ToolDefinition(
       name: 'open_app',
       description: 'Launch an installed application by package name',
-      parametersSchema: {'package': 'Android package name, e.g. com.google.android.youtube'},
+      parametersSchema: {
+        'package': 'Android package name, e.g. com.google.android.youtube',
+      },
       requiredParameters: ['package'],
     ),
     'tap': ToolDefinition(
       name: 'tap',
-      description: 'Perform a single tap gesture at normalized or pixel screen coordinates',
-      parametersSchema: {'x': 'X coordinate (pixel or 0.0-1.0)', 'y': 'Y coordinate (pixel or 0.0-1.0)'},
+      description:
+          'Perform a single tap gesture at normalized or pixel screen coordinates',
+      parametersSchema: {
+        'x': 'X coordinate (pixel or 0.0-1.0)',
+        'y': 'Y coordinate (pixel or 0.0-1.0)',
+      },
       requiredParameters: ['x', 'y'],
       requiresPermission: true,
       timeout: Duration(seconds: 4),
@@ -108,7 +117,8 @@ class ToolRegistry {
     ),
     'swipe': ToolDefinition(
       name: 'swipe',
-      description: 'Perform a swipe gesture from start coordinates to end coordinates',
+      description:
+          'Perform a swipe gesture from start coordinates to end coordinates',
       parametersSchema: {
         'startX': 'Start X coordinate',
         'startY': 'Start Y coordinate',
@@ -121,7 +131,8 @@ class ToolRegistry {
     ),
     'back': ToolDefinition(
       name: 'back',
-      description: 'Navigate back to the previous screen using Android global Back',
+      description:
+          'Navigate back to the previous screen using Android global Back',
       parametersSchema: {},
       requiredParameters: [],
       requiresPermission: true,
@@ -135,7 +146,8 @@ class ToolRegistry {
     ),
     'wait': ToolDefinition(
       name: 'wait',
-      description: 'Wait for UI transitions or animations to settle (in milliseconds)',
+      description:
+          'Wait for UI transitions or animations to settle (in milliseconds)',
       parametersSchema: {'ms': 'Milliseconds to pause (maximum 5000)'},
       requiredParameters: ['ms'],
       timeout: Duration(seconds: 6),
@@ -152,8 +164,11 @@ class ToolRegistry {
     ),
     'list_reminders': ToolDefinition(
       name: 'list_reminders',
-      description: 'Retrieve pending or completed scheduled reminders and tasks',
-      parametersSchema: {'completed': 'Boolean (true for completed, false for pending)'},
+      description:
+          'Retrieve pending or completed scheduled reminders and tasks',
+      parametersSchema: {
+        'completed': 'Boolean (true for completed, false for pending)',
+      },
       requiredParameters: [],
     ),
     'complete_reminder': ToolDefinition(
@@ -164,7 +179,8 @@ class ToolRegistry {
     ),
     'add_memory': ToolDefinition(
       name: 'add_memory',
-      description: 'Store a personal fact or preference in long-term local memory',
+      description:
+          'Store a personal fact or preference in long-term local memory',
       parametersSchema: {
         'content': 'Information to remember',
         'category': 'personal, preference, work, fact',
@@ -173,7 +189,8 @@ class ToolRegistry {
     ),
     'search_memory': ToolDefinition(
       name: 'search_memory',
-      description: 'Search user long-term local memory for facts or preferences',
+      description:
+          'Search user long-term local memory for facts or preferences',
       parametersSchema: {'query': 'Search query string'},
       requiredParameters: ['query'],
     ),
@@ -188,7 +205,9 @@ class ToolRegistry {
   /// Returns system prompt documentation of all allowed tools for the local LLM.
   static String getPromptToolDocumentation() {
     final buffer = StringBuffer();
-    buffer.writeln('SUPPORTED TOOLS (Format exactly as {"type": "tool_name", ...params}):');
+    buffer.writeln(
+      'SUPPORTED TOOLS (Format exactly as {"type": "tool_name", ...params}):',
+    );
     for (final entry in tools.entries) {
       final t = entry.value;
       buffer.write('- ${t.name}: ${t.description}. Params: ');

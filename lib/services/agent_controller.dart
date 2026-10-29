@@ -71,7 +71,8 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
   final LocalCommandRouter _commandRouter = LocalCommandRouter();
   final MemoryService _memoryService = MemoryService();
   final ReminderService _reminderService = ReminderService();
-  final SafetyConfirmationService _safetyConfirmation = SafetyConfirmationService();
+  final SafetyConfirmationService _safetyConfirmation =
+      SafetyConfirmationService();
   late final LocalModelService _localModel = LocalModelService(_screenCapture);
   late final AiService _aiService = AiService(_localModel);
 
@@ -887,7 +888,7 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
           'Thursday',
           'Friday',
           'Saturday',
-          'Sunday'
+          'Sunday',
         ];
         const months = [
           'January',
@@ -901,7 +902,7 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
           'September',
           'October',
           'November',
-          'December'
+          'December',
         ];
         final dayName = weekdays[now.weekday - 1];
         final monthName = months[now.month - 1];
@@ -1276,7 +1277,7 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
           final timeStr = action.params['scheduledTime'] as String?;
           final scheduled = timeStr != null
               ? (DateTime.tryParse(timeStr) ??
-                  DateTime.now().add(const Duration(hours: 1)))
+                    DateTime.now().add(const Duration(hours: 1)))
               : DateTime.now().add(const Duration(hours: 1));
           await _reminderService.addReminder(
             title: title,

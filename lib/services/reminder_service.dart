@@ -46,15 +46,15 @@ class ReminderItem {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'description': description,
-        'scheduledTime': scheduledTime.toIso8601String(),
-        'recurrence': recurrence.name,
-        'isCompleted': isCompleted,
-        'createdAt': createdAt.toIso8601String(),
-        'category': category,
-      };
+    'id': id,
+    'title': title,
+    'description': description,
+    'scheduledTime': scheduledTime.toIso8601String(),
+    'recurrence': recurrence.name,
+    'isCompleted': isCompleted,
+    'createdAt': createdAt.toIso8601String(),
+    'category': category,
+  };
 
   factory ReminderItem.fromJson(Map<String, dynamic> json) {
     return ReminderItem(
@@ -201,8 +201,7 @@ class ReminderParser {
   static ParsedReminderResult? parseNaturalLanguage(
     String text, {
     DateTime? referenceTime,
-  }) =>
-      parse(text, now: referenceTime);
+  }) => parse(text, now: referenceTime);
 
   /// Parse natural language commands into a [ParsedReminderResult].
   /// Examples:

@@ -34,12 +34,12 @@ class MemoryEntry {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'content': content,
-        'category': category,
-        'createdAt': createdAt.toIso8601String(),
-        'updatedAt': updatedAt.toIso8601String(),
-      };
+    'id': id,
+    'content': content,
+    'category': category,
+    'createdAt': createdAt.toIso8601String(),
+    'updatedAt': updatedAt.toIso8601String(),
+  };
 
   factory MemoryEntry.fromJson(Map<String, dynamic> json) {
     return MemoryEntry(
@@ -147,10 +147,12 @@ class MemoryService extends ChangeNotifier {
   List<MemoryEntry> search(String query) {
     final q = query.toLowerCase().trim();
     if (q.isEmpty) return List.unmodifiable(_memories);
-    return _memories.where((m) {
-      return m.content.toLowerCase().contains(q) ||
-          m.category.toLowerCase().contains(q);
-    }).toList(growable: false);
+    return _memories
+        .where((m) {
+          return m.content.toLowerCase().contains(q) ||
+              m.category.toLowerCase().contains(q);
+        })
+        .toList(growable: false);
   }
 
   /// Compact summary for injection into the local LLM system prompt
@@ -178,8 +180,7 @@ class MemoryService extends ChangeNotifier {
   Future<MemoryEntry> saveMemory(
     String content, {
     String category = 'general',
-  }) =>
-      addMemory(content, category: category);
+  }) => addMemory(content, category: category);
 
   bool get autoExtractEnabled => _autoMemoryEnabled;
 
@@ -189,7 +190,9 @@ class MemoryService extends ChangeNotifier {
 
   List<MemoryEntry> getMemoriesByCategory(String cat) {
     final c = cat.toLowerCase().trim();
-    return _memories.where((m) => m.category.toLowerCase() == c).toList(growable: false);
+    return _memories
+        .where((m) => m.category.toLowerCase() == c)
+        .toList(growable: false);
   }
 
   String getPromptContextSummary({int limit = 5}) =>

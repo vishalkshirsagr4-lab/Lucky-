@@ -79,22 +79,27 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              const Text('Category:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                'Category:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
               DropdownButton<String>(
                 value: category,
                 isExpanded: true,
-                items: [
-                  'User Preferences',
-                  'App Facts',
-                  'Device Settings',
-                  'Personal',
-                  'Other',
-                ]
-                    .map(
-                      (cat) => DropdownMenuItem(value: cat, child: Text(cat)),
-                    )
-                    .toList(),
+                items:
+                    [
+                          'User Preferences',
+                          'App Facts',
+                          'Device Settings',
+                          'Personal',
+                          'Other',
+                        ]
+                        .map(
+                          (cat) =>
+                              DropdownMenuItem(value: cat, child: Text(cat)),
+                        )
+                        .toList(),
                 onChanged: (val) {
                   if (val != null) {
                     setDialogState(() => category = val);

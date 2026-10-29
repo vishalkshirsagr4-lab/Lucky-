@@ -35,21 +35,18 @@ void main() {
     });
 
     test('detects typing sensitive data into password fields', () {
-      final action = AgentAction(
-        type: 'type',
-        params: {'text': 'secret123'},
-      );
+      final action = AgentAction(type: 'type', params: {'text': 'secret123'});
       expect(
-        safetyService.requiresConfirmation(action, focusedFieldHint: 'Enter your password'),
+        safetyService.requiresConfirmation(
+          action,
+          focusedFieldHint: 'Enter your password',
+        ),
         isTrue,
       );
     });
 
     test('regular click or read actions are not high impact', () {
-      final action = AgentAction(
-        type: 'click',
-        params: {'x': 100, 'y': 200},
-      );
+      final action = AgentAction(type: 'click', params: {'x': 100, 'y': 200});
       expect(safetyService.requiresConfirmation(action), isFalse);
     });
 
@@ -72,7 +69,10 @@ void main() {
       final future = safetyService.requestConfirmation(confirmation);
 
       expect(safetyService.hasPendingConfirmation, isTrue);
-      expect(safetyService.pendingConfirmation?.category, equals(HighImpactCategory.sendMessage));
+      expect(
+        safetyService.pendingConfirmation?.category,
+        equals(HighImpactCategory.sendMessage),
+      );
 
       // User approves
       safetyService.resolveConfirmation(true);
