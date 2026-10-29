@@ -52,30 +52,59 @@ void main() {
     }
   });
 
-  test('rejects multiple actions and out-of-screen swipe coordinates', () {
-    final multipleActions = AiService.parseAgentResponse(
+  test('accepts bounded multi-action plans', () {
+    final response = AiService.parseAgentResponse(
       jsonEncode({
-        ...responseWith({'type': 'back'}),
         'actions': [
+          {'type': 'open_app', 'package': 'com.example.app'},
+          {'type': 'wait', 'ms': 500},
           {'type': 'back'},
-          {'type': 'home'},
         ],
+        'speak': 'Working on it.',
+        'done': false,
+        'lang': 'en',
       }),
     );
-    expect(multipleActions.actions, isEmpty);
 
-    final swipe = AiService.parseAgentResponse(
-      jsonEncode(
-        responseWith({
-          'type': 'swipe',
-          'startX': 100,
-          'startY': 100,
-          'endX': 1000,
-          'endY': 100,
-        }),
-      ),
+    expect(response.isValidated, isTrue);
+    expect(response.actions.map((a) => a.type), ['open_app', 'wait', 'back']);
+  });
+
+  test('rejects more than five actions', () {
+    final response = AiService.parseAgentResponse(
+      jsonEncode({
+        'actions': List.generate(6, (_) => {'type': 'back'}),
+        'speak': 'Working.',
+        'done': false,
+        'lang': 'en',
+      }),
+    );
+
+    expect(response.actions, isEmpty);
+    expect(response.isValidated, isFalse);
+  });
+
+  test('rejects out-of-screen swipes in a multi-action plan', () {
+    final response = AiService.parseAgentResponse(
+      jsonEncode({
+        'actions': [
+          {'type': 'back'},
+          {
+            'type': 'swipe',
+            'startX': 100,
+            'startY': 100,
+            'endX': 1000,
+            'endY': 100,
+          },
+        ],
+        'speak': 'Working.',
+        'done': false,
+        'lang': 'en',
+      }),
       screenSize: {'width': 500, 'height': 800},
     );
-    expect(swipe.actions, isEmpty);
+
+    expect(response.actions, isEmpty);
+    expect(response.isValidated, isFalse);
   });
 }
