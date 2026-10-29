@@ -1137,8 +1137,9 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
       case 'home':
         return _navigationReadyTimeout;
       case 'wait':
-        final ms = (action.params['ms'] as num?)?.toInt() ?? 1000;
-        return Duration(milliseconds: ms.clamp(0, 10000));
+        // The wait action performs its delay inside _executeAction.
+        // Do not wait again for a UI change afterward.
+        return Duration.zero;
       default:
         return Duration.zero;
     }
@@ -1375,7 +1376,23 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
           break;
 
         case 'wait':
-          succeeded = true;
+          final ms = (action.params['ms'] as num?)?.toInt() ?? 1000;
+          final boundedMs = ms.clamp(0, 10000).toInt();
+          if (!_cancelRequested) {
+            final deadline = DateTime.now().add(
+              Duration(milliseconds: boundedMs),
+            );
+            while (!_cancelRequested) {
+              final remaining = deadline.difference(DateTime.now());
+              if (remaining <= Duration.zero) {
+                succeeded = true;
+                break;
+              }
+              await Future.delayed(
+                remaining < _uiPollInterval ? remaining : _uiPollInterval,
+              );
+            }
+          }
           break;
 
         default:
