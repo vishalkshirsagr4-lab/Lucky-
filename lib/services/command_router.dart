@@ -15,12 +15,7 @@ enum LocalCommandType {
 }
 
 class LocalCommand {
-  const LocalCommand(
-    this.type, {
-    this.action,
-    this.label,
-    this.params,
-  });
+  const LocalCommand(this.type, {this.action, this.label, this.params});
 
   final LocalCommandType type;
   final AgentAction? action;
@@ -226,10 +221,7 @@ class LocalCommandRouter {
         if (package != null) {
           return LocalCommand(
             LocalCommandType.action,
-            action: AgentAction(
-              type: 'open_app',
-              params: {'package': package},
-            ),
+            action: AgentAction(type: 'open_app', params: {'package': package}),
             label: app,
           );
         }
@@ -243,10 +235,7 @@ class LocalCommandRouter {
       if (package != null) {
         return LocalCommand(
           LocalCommandType.action,
-          action: AgentAction(
-            type: 'open_app',
-            params: {'package': package},
-          ),
+          action: AgentAction(type: 'open_app', params: {'package': package}),
           label: app,
         );
       }
@@ -259,10 +248,7 @@ class LocalCommandRouter {
       if (package != null) {
         return LocalCommand(
           LocalCommandType.action,
-          action: AgentAction(
-            type: 'open_app',
-            params: {'package': package},
-          ),
+          action: AgentAction(type: 'open_app', params: {'package': package}),
           label: app,
         );
       }

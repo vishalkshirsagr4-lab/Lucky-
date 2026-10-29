@@ -294,7 +294,9 @@ class _RemindersScreenState extends State<RemindersScreen>
                   '${item.scheduledTime.year}-${item.scheduledTime.month.toString().padLeft(2, '0')}-${item.scheduledTime.day.toString().padLeft(2, '0')} ${item.scheduledTime.hour.toString().padLeft(2, '0')}:${item.scheduledTime.minute.toString().padLeft(2, '0')}',
                   style: TextStyle(
                     fontSize: 12,
-                    color: isOverdue ? Colors.redAccent : colorScheme.onSurfaceVariant,
+                    color: isOverdue
+                        ? Colors.redAccent
+                        : colorScheme.onSurfaceVariant,
                     fontWeight: isOverdue ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
@@ -322,7 +324,10 @@ class _RemindersScreenState extends State<RemindersScreen>
                     ),
                     child: Text(
                       item.recurrence.name,
-                      style: TextStyle(fontSize: 10, color: colorScheme.primary),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: colorScheme.primary,
+                      ),
                     ),
                   ),
                 ],

@@ -9,7 +9,6 @@ import 'local_model_service.dart';
 import 'memory_service.dart';
 import 'reminder_service.dart';
 import 'safety_confirmation_service.dart';
-import 'tool_registry.dart';
 import 'voice_service.dart';
 import 'screen_capture_service.dart';
 
@@ -71,7 +70,8 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
   final LocalCommandRouter _commandRouter = LocalCommandRouter();
   final MemoryService _memoryService = MemoryService();
   final ReminderService _reminderService = ReminderService();
-  final SafetyConfirmationService _safetyConfirmation = SafetyConfirmationService();
+  final SafetyConfirmationService _safetyConfirmation =
+      SafetyConfirmationService();
   late final LocalModelService _localModel = LocalModelService(_screenCapture);
   late final AiService _aiService = AiService(_localModel);
 
@@ -697,13 +697,25 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
         var latestSnapshot = uiSnapshot;
         for (final action in agentResponse.actions) {
           if (_cancelRequested) break;
+
           final actionTimer = Stopwatch()..start();
           final result = await _executeAction(action, latestSnapshot);
           latestSnapshot = result.snapshot;
-          actionsSucceeded = actionsSucceeded && result.succeeded;
+
           debugPrint(
-            'Lucy[$requestId] stage=action_${action.type} elapsed_ms=${actionTimer.elapsedMilliseconds}',
+            'Lucy[$requestId] stage=action_${action.type} '
+            'elapsed_ms=${actionTimer.elapsedMilliseconds} '
+            'succeeded=${result.succeeded}',
           );
+
+          if (!result.succeeded) {
+            actionsSucceeded = false;
+            debugPrint(
+              'Lucy[$requestId] stopping action plan after '
+              'failed action: ${action.type}',
+            );
+            break;
+          }
         }
       }
 
@@ -887,7 +899,7 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
           'Thursday',
           'Friday',
           'Saturday',
-          'Sunday'
+          'Sunday',
         ];
         const months = [
           'January',
@@ -901,7 +913,7 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
           'September',
           'October',
           'November',
-          'December'
+          'December',
         ];
         final dayName = weekdays[now.weekday - 1];
         final monthName = months[now.month - 1];
@@ -1125,8 +1137,9 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
       case 'home':
         return _navigationReadyTimeout;
       case 'wait':
-        final ms = (action.params['ms'] as num?)?.toInt() ?? 1000;
-        return Duration(milliseconds: ms.clamp(0, 10000));
+        // The wait action performs its delay inside _executeAction.
+        // Do not wait again for a UI change afterward.
+        return Duration.zero;
       default:
         return Duration.zero;
     }
@@ -1276,7 +1289,7 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
           final timeStr = action.params['scheduledTime'] as String?;
           final scheduled = timeStr != null
               ? (DateTime.tryParse(timeStr) ??
-                  DateTime.now().add(const Duration(hours: 1)))
+                    DateTime.now().add(const Duration(hours: 1)))
               : DateTime.now().add(const Duration(hours: 1));
           await _reminderService.addReminder(
             title: title,
@@ -1363,7 +1376,23 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
           break;
 
         case 'wait':
-          succeeded = true;
+          final ms = (action.params['ms'] as num?)?.toInt() ?? 1000;
+          final boundedMs = ms.clamp(0, 10000).toInt();
+          if (!_cancelRequested) {
+            final deadline = DateTime.now().add(
+              Duration(milliseconds: boundedMs),
+            );
+            while (!_cancelRequested) {
+              final remaining = deadline.difference(DateTime.now());
+              if (remaining <= Duration.zero) {
+                succeeded = true;
+                break;
+              }
+              await Future.delayed(
+                remaining < _uiPollInterval ? remaining : _uiPollInterval,
+              );
+            }
+          }
           break;
 
         default:

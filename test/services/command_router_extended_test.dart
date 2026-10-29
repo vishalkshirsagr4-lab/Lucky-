@@ -19,7 +19,10 @@ void main() {
       final match = router.route('remind me to call Mom at 5 PM');
       expect(match, isNotNull);
       expect(match!.type, equals(LocalCommandType.reminder));
-      expect(match.params!['title'].toString().toLowerCase(), contains('call mom'));
+      expect(
+        match.params!['title'].toString().toLowerCase(),
+        contains('call mom'),
+      );
 
       final match2 = router.route('remind me in 15 minutes to turn off stove');
       expect(match2, isNotNull);
@@ -27,10 +30,15 @@ void main() {
     });
 
     test('routes memory store and query commands', () {
-      final matchStore = router.route('remember that my favorite color is navy');
+      final matchStore = router.route(
+        'remember that my favorite color is navy',
+      );
       expect(matchStore, isNotNull);
       expect(matchStore!.type, equals(LocalCommandType.memory));
-      expect(matchStore.params!['content'], equals('my favorite color is navy'));
+      expect(
+        matchStore.params!['content'],
+        equals('my favorite color is navy'),
+      );
 
       final matchQuery = router.route('what do you remember about color');
       expect(matchQuery, isNotNull);
@@ -43,7 +51,10 @@ void main() {
       final match1 = router.route('यूट्यूब खोलो');
       expect(match1, isNotNull);
       expect(match1!.type, equals(LocalCommandType.action));
-      expect(match1.action?.params['package'], equals('com.google.android.youtube'));
+      expect(
+        match1.action?.params['package'],
+        equals('com.google.android.youtube'),
+      );
 
       // Go home
       final match2 = router.route('होम पर जाओ');
@@ -68,7 +79,10 @@ void main() {
       final match1 = router.route('ಯೂಟ್ಯೂಬ್ ತೆರೆಯಿರಿ');
       expect(match1, isNotNull);
       expect(match1!.type, equals(LocalCommandType.action));
-      expect(match1.action?.params['package'], equals('com.google.android.youtube'));
+      expect(
+        match1.action?.params['package'],
+        equals('com.google.android.youtube'),
+      );
 
       // Go home
       final match2 = router.route('ಮುಖಪುಟಕ್ಕೆ ಹೋಗಿ');

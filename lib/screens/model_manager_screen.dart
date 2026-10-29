@@ -189,7 +189,9 @@ class _ModelManagerScreenState extends State<ModelManagerScreen> {
             FilledButton.icon(
               icon: const Icon(Icons.file_open),
               label: Text(
-                lm.hasSelectedModel ? 'Choose Different Model' : 'Select GGUF Model File',
+                lm.hasSelectedModel
+                    ? 'Choose Different Model'
+                    : 'Select GGUF Model File',
               ),
               onPressed: () async {
                 try {
@@ -210,7 +212,10 @@ class _ModelManagerScreenState extends State<ModelManagerScreen> {
                   child: OutlinedButton.icon(
                     icon: const Icon(Icons.play_arrow),
                     label: const Text('Load into RAM'),
-                    onPressed: lm.hasSelectedModel && !lm.isReady && lm.state != LocalModelState.loading
+                    onPressed:
+                        lm.hasSelectedModel &&
+                            !lm.isReady &&
+                            lm.state != LocalModelState.loading
                         ? () async {
                             try {
                               await lm.loadModel();
@@ -253,7 +258,10 @@ class _ModelManagerScreenState extends State<ModelManagerScreen> {
     );
   }
 
-  Widget _buildInferenceTestSection(LocalModelService lm, ColorScheme colorScheme) {
+  Widget _buildInferenceTestSection(
+    LocalModelService lm,
+    ColorScheme colorScheme,
+  ) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -293,7 +301,9 @@ class _ModelManagerScreenState extends State<ModelManagerScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.bolt),
-              label: Text(_isTesting ? 'Generating Tokens...' : 'Run Self-Test'),
+              label: Text(
+                _isTesting ? 'Generating Tokens...' : 'Run Self-Test',
+              ),
               onPressed: lm.isReady && !_isTesting ? _runTest : null,
             ),
             if (_testOutput != null) ...[
@@ -309,7 +319,10 @@ class _ModelManagerScreenState extends State<ModelManagerScreen> {
                   children: [
                     const Text(
                       'Generated Response:',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(_testOutput!),
@@ -330,7 +343,10 @@ class _ModelManagerScreenState extends State<ModelManagerScreen> {
     );
   }
 
-  Widget _buildConfigurationSection(LocalModelService lm, ColorScheme colorScheme) {
+  Widget _buildConfigurationSection(
+    LocalModelService lm,
+    ColorScheme colorScheme,
+  ) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -345,7 +361,9 @@ class _ModelManagerScreenState extends State<ModelManagerScreen> {
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Context Window Size'),
-              subtitle: const Text('Maximum total tokens (prompt + output) held in memory'),
+              subtitle: const Text(
+                'Maximum total tokens (prompt + output) held in memory',
+              ),
               trailing: DropdownButton<int>(
                 value: lm.contextSize,
                 onChanged: (val) {
@@ -353,7 +371,10 @@ class _ModelManagerScreenState extends State<ModelManagerScreen> {
                 },
                 items: const [
                   DropdownMenuItem(value: 1024, child: Text('1024 tokens')),
-                  DropdownMenuItem(value: 2048, child: Text('2048 tokens (Recommended)')),
+                  DropdownMenuItem(
+                    value: 2048,
+                    child: Text('2048 tokens (Recommended)'),
+                  ),
                   DropdownMenuItem(value: 4096, child: Text('4096 tokens')),
                 ],
               ),
@@ -377,7 +398,9 @@ class _ModelManagerScreenState extends State<ModelManagerScreen> {
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('CPU Inference Threads'),
-              subtitle: const Text('Number of CPU cores dedicated to llama.cpp'),
+              subtitle: const Text(
+                'Number of CPU cores dedicated to llama.cpp',
+              ),
               trailing: DropdownButton<int>(
                 value: lm.threads,
                 onChanged: (val) {
@@ -410,7 +433,10 @@ class _ModelManagerScreenState extends State<ModelManagerScreen> {
     );
   }
 
-  Widget _buildTechnicalDetailsSection(LocalModelService lm, ColorScheme colorScheme) {
+  Widget _buildTechnicalDetailsSection(
+    LocalModelService lm,
+    ColorScheme colorScheme,
+  ) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -426,11 +452,20 @@ class _ModelManagerScreenState extends State<ModelManagerScreen> {
             if (lm.loadedContextSize != null)
               _infoRow('Active Context Tokens', '${lm.loadedContextSize}'),
             if (lm.loadDuration != null)
-              _infoRow('Model Load Duration', '${lm.loadDuration!.inMilliseconds} ms'),
+              _infoRow(
+                'Model Load Duration',
+                '${lm.loadDuration!.inMilliseconds} ms',
+              ),
             if (lm.timeToFirstToken != null)
-              _infoRow('Time to First Token', '${lm.timeToFirstToken!.inMilliseconds} ms'),
+              _infoRow(
+                'Time to First Token',
+                '${lm.timeToFirstToken!.inMilliseconds} ms',
+              ),
             if (lm.lastGenerationDuration != null)
-              _infoRow('Last Response Time', '${lm.lastGenerationDuration!.inMilliseconds} ms'),
+              _infoRow(
+                'Last Response Time',
+                '${lm.lastGenerationDuration!.inMilliseconds} ms',
+              ),
           ],
         ),
       ),

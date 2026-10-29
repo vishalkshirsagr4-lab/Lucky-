@@ -16,7 +16,10 @@ void main() {
   group('ReminderParser natural language tests', () {
     test('parses "in 15 minutes"', () {
       final now = DateTime(2026, 1, 1, 12, 0);
-      final parsed = ReminderParser.parseNaturalLanguage('remind me in 15 minutes to turn off stove', referenceTime: now);
+      final parsed = ReminderParser.parseNaturalLanguage(
+        'remind me in 15 minutes to turn off stove',
+        referenceTime: now,
+      );
 
       expect(parsed, isNotNull);
       expect(parsed!.title.toLowerCase(), contains('turn off stove'));
@@ -25,7 +28,10 @@ void main() {
 
     test('parses "in 2 hours"', () {
       final now = DateTime(2026, 1, 1, 10, 0);
-      final parsed = ReminderParser.parseNaturalLanguage('remind me in 2 hours to call dentist', referenceTime: now);
+      final parsed = ReminderParser.parseNaturalLanguage(
+        'remind me in 2 hours to call dentist',
+        referenceTime: now,
+      );
 
       expect(parsed, isNotNull);
       expect(parsed!.title.toLowerCase(), contains('call dentist'));
@@ -34,7 +40,10 @@ void main() {
 
     test('parses "at 5 PM"', () {
       final now = DateTime(2026, 1, 1, 10, 0);
-      final parsed = ReminderParser.parseNaturalLanguage('remind me to water plants at 5 PM', referenceTime: now);
+      final parsed = ReminderParser.parseNaturalLanguage(
+        'remind me to water plants at 5 PM',
+        referenceTime: now,
+      );
 
       expect(parsed, isNotNull);
       expect(parsed!.title.toLowerCase(), contains('water plants'));
@@ -44,7 +53,10 @@ void main() {
 
     test('parses "at 9:30 AM"', () {
       final now = DateTime(2026, 1, 1, 8, 0);
-      final parsed = ReminderParser.parseNaturalLanguage('remind me to join standup meeting at 9:30 AM', referenceTime: now);
+      final parsed = ReminderParser.parseNaturalLanguage(
+        'remind me to join standup meeting at 9:30 AM',
+        referenceTime: now,
+      );
 
       expect(parsed, isNotNull);
       expect(parsed!.title.toLowerCase(), contains('join standup meeting'));
@@ -54,7 +66,10 @@ void main() {
 
     test('parses "tomorrow morning"', () {
       final now = DateTime(2026, 1, 1, 15, 0);
-      final parsed = ReminderParser.parseNaturalLanguage('remind me to buy milk tomorrow morning', referenceTime: now);
+      final parsed = ReminderParser.parseNaturalLanguage(
+        'remind me to buy milk tomorrow morning',
+        referenceTime: now,
+      );
 
       expect(parsed, isNotNull);
       expect(parsed!.title.toLowerCase(), contains('buy milk'));
@@ -64,7 +79,10 @@ void main() {
 
     test('parses "tonight"', () {
       final now = DateTime(2026, 1, 1, 12, 0);
-      final parsed = ReminderParser.parseNaturalLanguage('remind me to watch movie today night', referenceTime: now);
+      final parsed = ReminderParser.parseNaturalLanguage(
+        'remind me to watch movie today night',
+        referenceTime: now,
+      );
 
       expect(parsed, isNotNull);
       expect(parsed!.title.toLowerCase(), contains('watch movie'));
@@ -87,22 +105,25 @@ void main() {
       expect(reminderService.completedReminders, isEmpty);
     });
 
-    test('toggleCompletion moves reminder between pending and completed', () async {
-      final scheduled = DateTime.now().add(const Duration(hours: 1));
-      final item = await reminderService.addReminder(
-        title: 'Call Mom',
-        scheduledTime: scheduled,
-      );
+    test(
+      'toggleCompletion moves reminder between pending and completed',
+      () async {
+        final scheduled = DateTime.now().add(const Duration(hours: 1));
+        final item = await reminderService.addReminder(
+          title: 'Call Mom',
+          scheduledTime: scheduled,
+        );
 
-      await reminderService.toggleCompletion(item.id);
-      expect(reminderService.pendingReminders, isEmpty);
-      expect(reminderService.completedReminders.length, equals(1));
+        await reminderService.toggleCompletion(item.id);
+        expect(reminderService.pendingReminders, isEmpty);
+        expect(reminderService.completedReminders.length, equals(1));
 
-      // Toggle back
-      await reminderService.toggleCompletion(item.id);
-      expect(reminderService.pendingReminders.length, equals(1));
-      expect(reminderService.completedReminders, isEmpty);
-    });
+        // Toggle back
+        await reminderService.toggleCompletion(item.id);
+        expect(reminderService.pendingReminders.length, equals(1));
+        expect(reminderService.completedReminders, isEmpty);
+      },
+    );
 
     test('deleteReminder removes item', () async {
       final scheduled = DateTime.now().add(const Duration(hours: 1));

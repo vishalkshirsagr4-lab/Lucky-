@@ -70,10 +70,7 @@ void main() {
     });
 
     test('test inference when unloaded throws StateError', () async {
-      expect(
-        () => service.runTestInference(),
-        throwsA(isA<StateError>()),
-      );
+      expect(() => service.runTestInference(), throwsA(isA<StateError>()));
     });
   });
 }

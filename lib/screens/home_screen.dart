@@ -161,19 +161,22 @@ class _HomeScreenState extends State<HomeScreen>
               if (value == 'memories') {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => MemoriesScreen(controller: widget.controller),
+                    builder: (_) =>
+                        MemoriesScreen(controller: widget.controller),
                   ),
                 );
               } else if (value == 'reminders') {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => RemindersScreen(controller: widget.controller),
+                    builder: (_) =>
+                        RemindersScreen(controller: widget.controller),
                   ),
                 );
               } else if (value == 'settings') {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => SettingsScreen(controller: widget.controller),
+                    builder: (_) =>
+                        SettingsScreen(controller: widget.controller),
                   ),
                 );
               } else if (value == 'api_key') {
@@ -298,10 +301,7 @@ class _HomeScreenState extends State<HomeScreen>
           const SizedBox(height: 4),
           Text(
             pending.description,
-            style: TextStyle(
-              fontSize: 12,
-              color: colorScheme.onSurfaceVariant,
-            ),
+            style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: 12),
           Row(
@@ -312,16 +312,16 @@ class _HomeScreenState extends State<HomeScreen>
                   foregroundColor: Colors.redAccent,
                   side: const BorderSide(color: Colors.redAccent),
                 ),
-                onPressed: () =>
-                    widget.controller.confirmPendingAction(false),
+                onPressed: () => widget.controller.confirmPendingAction(false),
                 icon: const Icon(Icons.close, size: 16),
                 label: const Text('Reject Action'),
               ),
               const SizedBox(width: 8),
               FilledButton.icon(
-                style: FilledButton.styleFrom(backgroundColor: Colors.amber[800]),
-                onPressed: () =>
-                    widget.controller.confirmPendingAction(true),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.amber[800],
+                ),
+                onPressed: () => widget.controller.confirmPendingAction(true),
                 icon: const Icon(Icons.check, size: 16),
                 label: const Text('Approve & Run'),
               ),
@@ -800,7 +800,8 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _showApiKeyDialog(BuildContext context) {
-    if (_apiKeyController.text.isEmpty && widget.controller.aiService.apiKey != null) {
+    if (_apiKeyController.text.isEmpty &&
+        widget.controller.aiService.apiKey != null) {
       _apiKeyController.text = widget.controller.aiService.apiKey!;
     }
     showDialog(

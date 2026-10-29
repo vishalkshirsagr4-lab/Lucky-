@@ -38,9 +38,18 @@ void main() {
     });
 
     test('search finds matching memories by keyword and category', () async {
-      await memoryService.saveMemory('Favorite music app is Spotify', category: 'App Facts');
-      await memoryService.saveMemory('Mom birthday is on July 14', category: 'Personal');
-      await memoryService.saveMemory('Work laptop password hint is blue sky', category: 'Other');
+      await memoryService.saveMemory(
+        'Favorite music app is Spotify',
+        category: 'App Facts',
+      );
+      await memoryService.saveMemory(
+        'Mom birthday is on July 14',
+        category: 'Personal',
+      );
+      await memoryService.saveMemory(
+        'Work laptop password hint is blue sky',
+        category: 'Other',
+      );
 
       final musicResults = memoryService.searchMemories('spotify');
       expect(musicResults.length, equals(1));
@@ -52,10 +61,19 @@ void main() {
     });
 
     test('can update an existing memory', () async {
-      final saved = await memoryService.saveMemory('I like tea', category: 'User Preferences');
-      await memoryService.updateMemory(saved.id, 'I prefer green tea over black tea');
+      final saved = await memoryService.saveMemory(
+        'I like tea',
+        category: 'User Preferences',
+      );
+      await memoryService.updateMemory(
+        saved.id,
+        'I prefer green tea over black tea',
+      );
 
-      expect(memoryService.memories.first.content, equals('I prefer green tea over black tea'));
+      expect(
+        memoryService.memories.first.content,
+        equals('I prefer green tea over black tea'),
+      );
       expect(memoryService.memories.first.id, equals(saved.id));
     });
 
@@ -73,7 +91,10 @@ void main() {
     });
 
     test('exports memories as valid JSON', () async {
-      await memoryService.saveMemory('Test memory content', category: 'Personal');
+      await memoryService.saveMemory(
+        'Test memory content',
+        category: 'Personal',
+      );
       final jsonStr = memoryService.exportToJson();
       final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
       final list = decoded['memories'] as List;
