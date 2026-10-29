@@ -697,13 +697,25 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
         var latestSnapshot = uiSnapshot;
         for (final action in agentResponse.actions) {
           if (_cancelRequested) break;
+
           final actionTimer = Stopwatch()..start();
           final result = await _executeAction(action, latestSnapshot);
           latestSnapshot = result.snapshot;
-          actionsSucceeded = actionsSucceeded && result.succeeded;
+
           debugPrint(
-            'Lucy[$requestId] stage=action_${action.type} elapsed_ms=${actionTimer.elapsedMilliseconds}',
+            'Lucy[$requestId] stage=action_${action.type} '
+            'elapsed_ms=${actionTimer.elapsedMilliseconds} '
+            'succeeded=${result.succeeded}',
           );
+
+          if (!result.succeeded) {
+            actionsSucceeded = false;
+            debugPrint(
+              'Lucy[$requestId] stopping action plan after '
+              'failed action: ${action.type}',
+            );
+            break;
+          }
         }
       }
 
