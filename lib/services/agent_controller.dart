@@ -11,6 +11,10 @@ import 'reminder_service.dart';
 import 'safety_confirmation_service.dart';
 import 'voice_service.dart';
 import 'screen_capture_service.dart';
+import 'agent_plan.dart';
+import 'observation.dart';
+import 'pipeline_profiler.dart';
+import 'task_verifier.dart';
 
 enum AgentState {
   idle,
@@ -36,27 +40,22 @@ class ConversationEntry {
   }) : timestamp = timestamp ?? DateTime.now();
 }
 
-class _UiSnapshot {
-  final String? rawTree;
-  final String? packageName;
-  final List<Map<String, dynamic>> elements;
-  final bool hasFocusedEditable;
-
-  const _UiSnapshot({
-    required this.rawTree,
-    required this.packageName,
-    required this.elements,
-    required this.hasFocusedEditable,
+class _ActionExecutionResult {
+  const _ActionExecutionResult(
+    this.snapshot,
+    this.succeeded, {
+    this.dispatchMs = 0,
+    this.waitMs = 0,
   });
 
-  String get signature => rawTree ?? '';
-}
-
-class _ActionExecutionResult {
-  const _ActionExecutionResult(this.snapshot, this.succeeded);
-
-  final _UiSnapshot? snapshot;
+  final UiSnapshot? snapshot;
   final bool succeeded;
+
+  /// Time spent dispatching the gesture/node action itself.
+  final int dispatchMs;
+
+  /// Time spent polling the accessibility tree for the resulting change.
+  final int waitMs;
 }
 
 class AgentController extends ChangeNotifier with WidgetsBindingObserver {
@@ -95,19 +94,97 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
   String? _currentTranscript = '';
   String? get currentTranscript => _currentTranscript;
 
+  /// When the current recognizer session started, for speech-stage timing.
+  DateTime? _listenStartedAt;
+
   bool _isActive = false;
   bool get isActive => _isActive;
 
   int _listenRetryCount = 0;
   static const int _maxListenRetries = 3;
 
-  static const int _maxStepsPerCommand = 12;
-  static const Duration _maxTaskDuration = Duration(minutes: 2);
+  /// Tunable from the Settings screen, persisted to SharedPreferences.
+  Future<void> setMaxActionsPerTask(int actions) async {
+    if (actions < 1 || actions > 40) {
+      throw ArgumentError.value(actions, 'actions', 'Use 1 to 40.');
+    }
+    _maxActions = actions;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_maxActionsKey, actions);
+    notifyListeners();
+  }
+
+  Future<void> setMaxInferencesPerTask(int steps) async {
+    if (steps < 1 || steps > 20) {
+      throw ArgumentError.value(steps, 'steps', 'Use 1 to 20.');
+    }
+    _maxInferences = steps;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_maxInferencesKey, steps);
+    notifyListeners();
+  }
+
+  Future<void> setTaskDeadline(Duration deadline) async {
+    final seconds = deadline.inSeconds;
+    if (seconds < 15 || seconds > 600) {
+      throw ArgumentError.value(deadline, 'deadline', '15 to 600 seconds.');
+    }
+    _taskDeadline = deadline;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_taskDeadlineKey, seconds);
+    notifyListeners();
+  }
+
+  Future<void> setInferenceTimeout(Duration timeout) async {
+    final seconds = timeout.inSeconds;
+    if (seconds < 10 || seconds > 180) {
+      throw ArgumentError.value(timeout, 'timeout', '10 to 180 seconds.');
+    }
+    _inferenceTimeout = timeout;
+    _aiService.inferenceTimeout = _inferenceTimeout;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_inferenceTimeoutKey, seconds);
+    notifyListeners();
+  }
+
+  /// Configurable task limits (seconds/actions/steps), read from preferences
+  /// in [initialize] so they can be tuned without a code change.
+  static const String _maxActionsKey = 'lucy_max_actions';
+  static const String _maxInferencesKey = 'lucy_max_inferences';
+  static const String _taskDeadlineKey = 'lucy_task_deadline_seconds';
+  static const String _inferenceTimeoutKey = 'lucy_inference_timeout_seconds';
+
+  static const int _defaultMaxActions = 12;
+  static const int _defaultMaxInferences = 8;
+  static const Duration _defaultTaskDeadline = Duration(minutes: 2);
+  static const Duration _defaultInferenceTimeout = Duration(seconds: 60);
+
+  int _maxActions = _defaultMaxActions;
+  int _maxInferences = _defaultMaxInferences;
+  Duration _taskDeadline = _defaultTaskDeadline;
+  Duration _inferenceTimeout = _defaultInferenceTimeout;
+
+  int get maxActionsPerTask => _maxActions;
+  int get maxInferencesPerTask => _maxInferences;
+  Duration get taskDeadline => _taskDeadline;
+  Duration get inferenceTimeout => _inferenceTimeout;
+
+
   static const Duration _uiPollInterval = Duration(milliseconds: 120);
   static const Duration _tapReadyTimeout = Duration(milliseconds: 900);
   static const Duration _typeReadyTimeout = Duration(milliseconds: 900);
   static const Duration _navigationReadyTimeout = Duration(milliseconds: 1200);
   static const Duration _openAppReadyTimeout = Duration(milliseconds: 2500);
+  static const int _maxVerificationRecoveries = 2;
+
+  /// Screen observations are cached so one action cycle reads the tree once.
+  late final ScreenObserver _observer = ScreenObserver(
+    fetchTree: _screenCapture.getUITree,
+  );
+
+  /// Hard guard: only one observe → plan → execute → verify loop may run.
+  bool _loopRunning = false;
+  bool get isLoopRunning => _loopRunning;
 
   bool _cancelRequested = false;
 
@@ -172,6 +249,14 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
     }
     notifyListeners();
   }
+
+  /// Estimated agent loop budget seen on the Settings screen for the current
+  /// run: action limit, inference budget, task time limit, and generation
+  /// timeout. These mirror the SharedPreferences keys so a planned run can
+  /// be described in advance.
+  String get loopLimitsSummary =>
+      '$_maxActions actions / $_maxInferences steps '
+      'in ${_taskDeadline.inSeconds}s, gen ${_inferenceTimeout.inSeconds}s';
 
   static const Map<String, String> _followUps = {
     'en': 'Do you need any further help?',
@@ -264,6 +349,35 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
     if (savedLang != null && _supportedLangs.contains(savedLang)) {
       _currentLang = savedLang;
     }
+
+    // Configurable loop limits with safe bounds; invalid values fall back to
+    // the defaults instead of disabling the agent.
+    _maxActions = _clampInt(
+      prefs.getInt(_maxActionsKey) ?? _defaultMaxActions,
+      1,
+      40,
+    );
+    _maxInferences = _clampInt(
+      prefs.getInt(_maxInferencesKey) ?? _defaultMaxInferences,
+      1,
+      20,
+    );
+    _taskDeadline = Duration(
+      seconds: _clampInt(
+        prefs.getInt(_taskDeadlineKey) ?? _defaultTaskDeadline.inSeconds,
+        15,
+        600,
+      ),
+    );
+    _inferenceTimeout = Duration(
+      seconds: _clampInt(
+        prefs.getInt(_inferenceTimeoutKey) ??
+            _defaultInferenceTimeout.inSeconds,
+        10,
+        180,
+      ),
+    );
+    _aiService.inferenceTimeout = _inferenceTimeout;
 
     final savedSpeechRate = prefs.getDouble('lucy_speech_rate');
     if (savedSpeechRate != null &&
@@ -369,6 +483,9 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
     };
   }
 
+  static int _clampInt(int value, int min, int max) =>
+      value < min ? min : (value > max ? max : value);
+
   void configureAi(String apiKey) {
     _aiService.configure(apiKey);
     notifyListeners();
@@ -458,6 +575,7 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
     _statusMessage =
         "🎤 I'm listening in the foreground. Wake-word detection is unavailable.";
     _currentTranscript = '';
+    _listenStartedAt = DateTime.now();
     notifyListeners();
 
     await _voiceService.startListening(
@@ -485,6 +603,16 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
         '${DateTime.now().microsecondsSinceEpoch}-${++_requestSequence}';
     final requestTimer = Stopwatch()..start();
     debugPrint('Lucy[$requestId] stage=command_received');
+    final listenStartedAt = _listenStartedAt;
+    if (listenStartedAt != null) {
+      // Time from starting the recognizer to the final transcript. This
+      // includes the time the user spent speaking, so it measures capture
+      // latency rather than model latency.
+      debugPrint(
+        'Lucy[$requestId] stage=speech_recognition '
+        'elapsed_ms=${DateTime.now().difference(listenStartedAt).inMilliseconds}',
+      );
+    }
 
     _addConversation(text, true);
     _currentTranscript = '';
@@ -590,232 +718,457 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
     });
   }
 
-  /// The core agent loop: capture → analyze → act → repeat.
+  /// The core agent loop: OBSERVE → PLAN → EXECUTE → VERIFY → CONTINUE/STOP.
+  ///
+  /// One inference produces a plan of up to five validated actions. The plan
+  /// is then executed action by action, reusing the observations already taken
+  /// for readiness checks, so a new inference only happens when the plan is
+  /// spent or contradicted by the screen. Success is accepted only after
+  /// deterministic verification against the accessibility tree.
   Future<void> _runAgentLoop(String userMessage, {String? requestId}) async {
+    if (_loopRunning) {
+      debugPrint('Lucy[$requestId] rejected: an agent loop is already running');
+      _addConversation('I am still working on the previous request.', false);
+      return;
+    }
+    _loopRunning = true;
+    try {
+      await _runTask(userMessage, requestId: requestId ?? 'task');
+    } catch (error, stackTrace) {
+      // Never swallow a failure: report it and keep the loop stopped.
+      debugPrint('Lucy[$requestId] stage=fatal error=$error\n$stackTrace');
+      _addConversation(
+        'Something failed while running this task: $error',
+        false,
+      );
+    } finally {
+      _loopRunning = false;
+    }
+  }
+
+  Future<void> _runTask(String userMessage, {required String requestId}) async {
+    final profiler = PipelineProfiler(requestId);
     _cancelRequested = false;
-    int step = 0;
-    String currentMessage = userMessage;
-    bool taskCompleted = false;
-    final taskTimer = Stopwatch()..start();
+    _observer.invalidate();
 
-    // Show persistent stop notification while Lucy is active
     await _screenCapture.showStopOverlay();
+    final canObserveUi = await _screenCapture.isAccessibilityEnabled();
+    final screenSize = await profiler.time(
+      'screen_size',
+      _screenCapture.getScreenSize,
+    );
 
-    // Fetch screen size once for the whole loop
-    final screenSize = await _screenCapture.getScreenSize();
+    final budget = AgentBudget(
+      maxActions: _maxActions,
+      maxInferences: _maxInferences,
+      deadline: _taskDeadline,
+    );
 
-    while (step < _maxStepsPerCommand &&
-        taskTimer.elapsed < _maxTaskDuration &&
-        _isActive &&
-        !_cancelRequested) {
-      step++;
+    final memoryContext = _memoryService.getContextSummaryForPrompt();
+    final baseMessage = memoryContext.isNotEmpty
+        ? '$memoryContext\n$userMessage'
+        : userMessage;
 
-      // 1. Capture screenshot (with retries for reliability after app switches)
-      _setState(AgentState.capturing);
-      _statusMessage = '📸 Observing screen... (step $step)';
-      notifyListeners();
+    UiSnapshot? baseline; // screen observed before the first device action
+    UiSnapshot? latest; // most recent observation
+    AgentPlan? plan;
+    var performedAction = false;
+    var recoveries = 0;
+    var emptyPlanRetries = 0;
+    var taskCompleted = false;
+    var needsFreshObservation = false;
+    String? evidenceNote;
+    String? finalMessage;
 
-      final screenshotFuture = _aiService.requiresScreenshot
-          ? _captureScreenWithRetry()
-          : Future<Uint8List?>.value(null);
-      final uiSnapshotFuture = _fetchUiSnapshot();
-      final screenshotTimer = Stopwatch()..start();
-      final uiTimer = Stopwatch()..start();
-
-      final screenshotBytes = await screenshotFuture;
-      debugPrint(
-        'Lucy[$requestId] stage=screen_observation elapsed_ms=${screenshotTimer.elapsedMilliseconds}',
-      );
-      if (screenshotBytes != null) {
-        _lastScreenshotBytes = screenshotBytes;
-      }
-
-      if (_cancelRequested) break;
-
-      // 1b. Fetch UI tree from accessibility service (runs in parallel-ready)
-      final uiSnapshot = await uiSnapshotFuture;
-      debugPrint(
-        'Lucy[$requestId] stage=ui_snapshot elapsed_ms=${uiTimer.elapsedMilliseconds}',
-      );
-      final uiTree = uiSnapshot?.rawTree;
-
-      if (_cancelRequested) break;
-
-      // 2. Send to AI (with screenshot + UI tree)
-      _setState(AgentState.analyzing);
-      _statusMessage = '🤖 Thinking... (step $step)';
-      notifyListeners();
-
-      final memoryContext = _memoryService.getContextSummaryForPrompt();
-      final promptWithMemory = memoryContext.isNotEmpty
-          ? '$memoryContext\n$currentMessage'
-          : currentMessage;
-
-      final inferenceTimer = Stopwatch()..start();
-      final agentResponse = await _aiService.agentChat(
-        promptWithMemory,
-        imageBytes: screenshotBytes,
-        screenSize: screenSize,
-        uiTree: uiTree,
-        onToken: (_) {
-          if (_streamingStatus.isEmpty) {
-            _streamingStatus = 'Local output received';
-            _statusMessage = 'Generating local response…';
-            notifyListeners();
-          }
-        },
-      );
-      _streamingStatus = '';
-      debugPrint(
-        'Lucy[$requestId] stage=ai_inference elapsed_ms=${inferenceTimer.elapsedMilliseconds}',
-      );
-
-      if (_cancelRequested) break;
-
-      // Update the current language from the AI's tag (falls back to previous).
-      if (_supportedLangs.contains(agentResponse.lang) &&
-          agentResponse.lang != _currentLang) {
-        _currentLang = agentResponse.lang;
-        // Persist so next launch + STT locale match what the user actually spoke.
-        unawaited(
-          SharedPreferences.getInstance().then(
-            (prefs) => prefs.setString(_langPrefKey, _currentLang),
-          ),
-        );
-      }
-
-      String speakText = agentResponse.speak;
-      if (_cancelRequested) break;
-
-      // 3. Execute actions
-      var actionsSucceeded = true;
-      if (agentResponse.actions.isNotEmpty) {
-        _setState(AgentState.executingAction);
-        _statusMessage = '⚡ Executing actions... (step $step)';
-        notifyListeners();
-
-        var latestSnapshot = uiSnapshot;
-        for (final action in agentResponse.actions) {
-          if (_cancelRequested) break;
-
-          final actionTimer = Stopwatch()..start();
-          final result = await _executeAction(action, latestSnapshot);
-          latestSnapshot = result.snapshot;
-
-          debugPrint(
-            'Lucy[$requestId] stage=action_${action.type} '
-            'elapsed_ms=${actionTimer.elapsedMilliseconds} '
-            'succeeded=${result.succeeded}',
-          );
-
-          if (!result.succeeded) {
-            actionsSucceeded = false;
-            debugPrint(
-              'Lucy[$requestId] stopping action plan after '
-              'failed action: ${action.type}',
-            );
-            break;
-          }
-        }
-      }
-
-      if (_cancelRequested) break;
-
-      if (!actionsSucceeded) {
-        speakText =
-            'I could not confirm that the requested Android action succeeded.';
-        _isAskingForFurtherHelp = true;
-      } else if (agentResponse.done) {
-        if (speakText.isNotEmpty &&
-            !speakText.endsWith(' ') &&
-            !speakText.endsWith('\n')) {
-          speakText += ' ';
-        }
-        speakText += _followUps[_currentLang] ?? _followUps['en']!;
-        _isAskingForFurtherHelp = true;
-      } else {
-        _isAskingForFurtherHelp = false;
-      }
-
-      String displayText = speakText;
-      if (agentResponse.actions.isNotEmpty) {
-        final actionSummary = agentResponse.actions
-            .map(
-              (a) => '⚡ ${a.type}${a.params.isNotEmpty ? ': ${a.params}' : ''}',
-            )
-            .join('\n');
-        displayText = displayText.isEmpty
-            ? actionSummary
-            : '$displayText\n\n$actionSummary';
-      }
-      if (displayText.trim().isNotEmpty) {
-        _addConversation(displayText, false, screenshotBytes: screenshotBytes);
-      }
-
-      // 4. Speak the response (only speak if done or has something to say)
-      if (speakText.isNotEmpty) {
-        _lastAssistantResponse = speakText;
-        _setState(AgentState.speaking);
-        _statusMessage = '🔊 Speaking...';
-        notifyListeners();
-
-        final ttsText = _trimForTts(speakText);
-        final speechTimer = Stopwatch()..start();
-        await _voiceService.speak(ttsText, lang: _currentLang);
-        debugPrint(
-          'Lucy[$requestId] stage=tts_start elapsed_ms=${speechTimer.elapsedMilliseconds}',
-        );
-
-        // Wait for TTS to finish
-        await Future.delayed(const Duration(milliseconds: 500));
-        while (_voiceService.isSpeaking && !_cancelRequested) {
-          await Future.delayed(const Duration(milliseconds: 200));
-        }
-      }
-
-      if (_cancelRequested) break;
-
-      // 5. Check if done
-      if (agentResponse.done || !actionsSucceeded) {
-        taskCompleted = true;
+    while (_isActive && !_cancelRequested) {
+      if (!budget.canContinue) {
+        finalMessage = budget.describeStop();
         break;
       }
 
-      // Not done → continue the loop with a follow-up message
-      currentMessage =
-          'I have executed the actions. Here is the updated screen. Continue with the task.';
-      // If screenshot capture might fail next iteration, the AI will still
-      // receive the message but without an image. The retry logic in
-      // _captureScreenWithRetry handles this by making multiple attempts.
-    }
+      if (plan != null && !plan.exhausted) {
+        // ── EXECUTE ────────────────────────────────────────────────────
+        final action = plan.takeNext()!;
+        if (!budget.canExecuteAction) {
+          finalMessage = budget.describeStop();
+          break;
+        }
 
-    if (!_cancelRequested &&
-        !taskCompleted &&
-        (step >= _maxStepsPerCommand ||
-            taskTimer.elapsed >= _maxTaskDuration)) {
-      _isAskingForFurtherHelp = true;
-      _addConversation(
-        'Stopped at Lucy’s task limit (${_maxStepsPerCommand} steps or 2 minutes). Review the current screen before continuing.',
-        false,
+        _setState(AgentState.executingAction);
+        _statusMessage =
+            '⚡ Executing ${action.type} '
+            '(${plan.total - plan.remaining}/${plan.total})…';
+        notifyListeners();
+
+        var validation = ActionValidator.validate(
+          action,
+          snapshot: latest,
+          screenSize: screenSize,
+        );
+        if (!validation.ok && latest == null && canObserveUi) {
+          // Nothing observed yet: one cheap read may resolve the target
+          // without spending an inference.
+          final refreshed = await profiler.time('observe', _observer.refresh);
+          if (refreshed != null) {
+            latest = refreshed;
+            validation = ActionValidator.validate(
+              action,
+              snapshot: latest,
+              screenSize: screenSize,
+            );
+          }
+        }
+
+        if (!validation.ok) {
+          // Stop the sequence: the target is not proven to exist.
+          final fresh = await profiler.time('observe', _observer.refresh);
+          latest = fresh ?? latest;
+          final detail = validation.reason ?? 'the action is not valid';
+          if (recoveries < _maxVerificationRecoveries && budget.canPlan) {
+            recoveries++;
+            evidenceNote = 'Step refused: $detail.';
+            plan = null;
+            needsFreshObservation = false;
+            continue;
+          }
+          finalMessage = 'I stopped before running ${action.type}: $detail.';
+          break;
+        }
+
+        baseline ??= latest;
+        // The screen is about to change: invalidate the cached observation
+        // before dispatching so the readiness poll reads real state.
+        _observer.markActionExecuted();
+
+        final result = await _executeAction(
+          action,
+          latest,
+          canObserveUi: canObserveUi,
+        );
+        profiler.record(
+          'action_${action.type}',
+          result.dispatchMs,
+          detail: 'succeeded=${result.succeeded}',
+        );
+        profiler.record('wait_ready', result.waitMs);
+
+        final signature = actionSignature(action);
+
+        if (!result.succeeded) {
+          // Stop the action sequence immediately, observe the new state, and
+          // decide whether one safe retry is justified.
+          final afterFailure = await profiler.time(
+            'observe',
+            _observer.refresh,
+          );
+          final stateAfter = afterFailure ?? result.snapshot ?? latest;
+          final changed =
+              latest != null &&
+              stateAfter != null &&
+              latest.signature != stateAfter.signature;
+          budget.recordAction(
+            signature: signature,
+            screenChanged: changed,
+            failed: true,
+          );
+
+          if (changed && !ActionValidator.neverRetry.contains(action.type)) {
+            // The device changed despite the reported failure: the effect
+            // happened, so continue instead of repeating it.
+            performedAction = true;
+            latest = stateAfter;
+            continue;
+          }
+
+          final irreversible = ActionValidator.neverRetry.contains(action.type);
+          if (irreversible || !budget.canRetry(signature)) {
+            finalMessage =
+                'I could not complete ${action.type} after a failed attempt, '
+                'so I stopped rather than repeat it.';
+            break;
+          }
+          evidenceNote =
+              '${action.type} failed once; retrying once from a fresh observation.';
+          plan.retryLast();
+          needsFreshObservation = true;
+          continue;
+        }
+        final screenAffecting = _affectsScreen(action.type);
+        if (screenAffecting) performedAction = true;
+        final stateAfter = result.snapshot;
+        final changed =
+            latest != null &&
+            stateAfter != null &&
+            latest.signature != stateAfter.signature;
+        latest = stateAfter ?? latest;
+        budget.recordAction(
+          signature: signature,
+          screenChanged: changed,
+          affectsScreen: screenAffecting,
+        );
+        if (budget.stopped) {
+          finalMessage = budget.describeStop();
+          break;
+        }
+        if (!changed) needsFreshObservation = true;
+        continue;
+      }
+
+      if (plan != null && plan.done) {
+        // ── VERIFY ─────────────────────────────────────────────────────
+        _setState(AgentState.analyzing);
+        _statusMessage = '🔎 Verifying the result…';
+        notifyListeners();
+
+        final verifyTimer = Stopwatch()..start();
+        // The readiness snapshot may predate a transition: read fresh
+        // evidence and give loading screens a bounded chance to settle.
+        final fresh = await _refreshForVerification();
+        latest = fresh ?? latest;
+
+        final verdict = TaskVerifier.verify(
+          criteria: plan.verify,
+          snapshot: latest,
+          previousSnapshot: baseline,
+          performedAction: performedAction,
+        );
+        profiler.record(
+          'verify',
+          verifyTimer.elapsedMilliseconds,
+          detail: 'status=${verdict.status.name}',
+        );
+
+        if (verdict.isSuccess) {
+          taskCompleted = true;
+          final answer = plan.speak.trim();
+          final confirmation = answer.isEmpty
+              ? 'Done. ${verdict.evidence}.'
+              : answer;
+          finalMessage =
+              '$confirmation ${_followUps[_currentLang] ?? _followUps['en']}';
+          break;
+        }
+
+        if (recoveries < _maxVerificationRecoveries && budget.canPlan) {
+          recoveries++;
+          evidenceNote =
+              'Verification failed: ${verdict.evidence}. The observation '
+              'below is the screen right now.';
+          plan = null;
+          continue;
+        }
+
+        finalMessage =
+            'I could not confirm that this task succeeded: ${verdict.evidence}.';
+        break;
+      }
+
+      // ── PLAN ─────────────────────────────────────────────────────────
+      if (!budget.canPlan) {
+        finalMessage = budget.describeStop();
+        break;
+      }
+
+      if (latest == null || needsFreshObservation) {
+        _setState(AgentState.capturing);
+        _statusMessage = '📸 Observing screen…';
+        notifyListeners();
+        needsFreshObservation = false;
+        latest = await profiler.time('observe', _observer.refresh);
+      }
+
+      _setState(AgentState.analyzing);
+      _statusMessage = '🤖 Planning… (step ${budget.inferences + 1})';
+      notifyListeners();
+
+      final promptBuilder = StringBuffer()..writeln(baseMessage);
+      if (evidenceNote != null) {
+        promptBuilder
+          ..writeln()
+          ..writeln('SCREEN_EVIDENCE: $evidenceNote');
+      }
+      if (performedAction) {
+        promptBuilder
+          ..writeln()
+          ..writeln(
+            'PREVIOUS_STEP: ${budget.actionsExecuted} action(s) executed; the '
+            'observation below is the screen right now. Continue the task, or '
+            'finish with done=true and a verify object.',
+          );
+      }
+      final preparedMessage = promptBuilder.toString();
+      final observationText = latest?.renderForModel();
+
+      final promptTimer = Stopwatch()..start();
+      final promptChars = AiService.promptLength(
+        preparedMessage,
+        screenSize: screenSize,
+        uiTree: observationText,
       );
+      profiler.record(
+        'prompt_prepare',
+        promptTimer.elapsedMilliseconds,
+        detail: 'prompt_chars=$promptChars',
+      );
+
+      final response = await profiler.time('ai_inference', () {
+        return _aiService.agentChat(
+          preparedMessage,
+          screenSize: screenSize,
+          uiTree: observationText,
+          timeout: _inferenceTimeout,
+          onToken: (_) {
+            // Surface the first token so a long local generation is visible.
+            if (_streamingStatus.isEmpty) {
+              _streamingStatus = 'local';
+              _statusMessage = '🎙 Local model is responding…';
+              notifyListeners();
+            }
+          },
+        );
+      });
+      _streamingStatus = '';
+      budget.recordPlan();
+
+      if (!response.isValidated) {
+        // Never execute an unvalidated response and never claim success.
+        finalMessage = response.speak;
+        break;
+      }
+
+      plan = AgentPlan.fromResponse(response);
+      evidenceNote = null;
+      _syncLanguage(response.lang);
+
+      if (plan.actions.isEmpty && !plan.done) {
+        emptyPlanRetries++;
+        if (emptyPlanRetries > 1) {
+          finalMessage =
+              'The model returned no action for this step, so I stopped.';
+          break;
+        }
+        evidenceNote =
+            'Your previous response contained no actions and done=false. '
+            'Return actions, or set done=true with a verify object.';
+        plan = null;
+        continue;
+      }
+      emptyPlanRetries = 0;
+
+      if (plan.speak.isNotEmpty &&
+          (_conversation.isEmpty || _conversation.last.text != plan.speak)) {
+        _addConversation(plan.speak, false);
+      }
+      // Brief acknowledgment: start it now, never block execution on it.
+      if (!plan.done && plan.speak.isNotEmpty && plan.actions.isNotEmpty) {
+        unawaited(
+          _voiceService
+              .speak(_trimForTts(plan.speak), lang: _currentLang)
+              .catchError((Object error) {
+                debugPrint('Acknowledgment speech failed: $error');
+              }),
+        );
+      }
     }
 
-    // Always hide the stop notification when the loop ends
     await _screenCapture.hideStopOverlay();
 
-    // Handle cancellation
     if (_cancelRequested) {
       _cancelRequested = false;
       _addConversation('🛑 Stopped by user.', false);
+      profiler.logSummary();
       return;
     }
 
-    if (step >= _maxStepsPerCommand) {
-      _addConversation(
-        '⚠️ Reached maximum steps ($_maxStepsPerCommand). Stopping.',
-        false,
-      );
+    if (finalMessage != null && finalMessage.trim().isNotEmpty) {
+      final text = finalMessage.trim();
+      _isAskingForFurtherHelp = true;
+      if (_conversation.isEmpty || _conversation.last.text != text) {
+        _addConversation(text, false);
+      }
+      await _speakFinal(text, profiler);
     }
+
+    if (taskCompleted) {
+      _statusMessage = '✅ Task verified. Ask me for anything else.';
+      notifyListeners();
+    }
+
+    profiler.logSummary();
+  }
+
+  /// Whether an action type is expected to change the observable screen.
+  /// Local side effects (memory, reminders) and pure waits must not be
+  /// "verified" against a screen that was never supposed to change.
+  static bool _affectsScreen(String type) =>
+      type != 'wait' && type != 'add_memory' && type != 'create_reminder';
+
+  /// Poll the accessibility tree until [matches] reports success or the
+  /// timeout elapses. Returns the matching snapshot, or null when the screen
+  /// never showed the expected state.
+  Future<UiSnapshot?> _awaitScreen(
+    bool Function(UiSnapshot snapshot) matches, {
+    Duration timeout = const Duration(milliseconds: 2000),
+  }) => _observer.awaitUntil(
+    matches,
+    timeout: timeout,
+    interval: _uiPollInterval,
+    isCancelled: () => _cancelRequested,
+  );
+
+  /// Fresh evidence for verification: re-read the tree and give loading
+  /// screens and blank windows a bounded chance to settle first.
+  Future<UiSnapshot?> _refreshForVerification() async {
+    var snapshot = await _observer.refresh();
+    var attempts = 0;
+    while (!_cancelRequested &&
+        attempts < 2 &&
+        snapshot != null &&
+        (snapshot.isLoading || snapshot.isBlank)) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      snapshot = await _observer.refresh();
+      attempts++;
+    }
+    return snapshot;
+  }
+
+  /// Speak the final result as soon as it is appropriate, without claiming
+  /// success before verification produced this message.
+  Future<void> _speakFinal(String text, PipelineProfiler profiler) async {
+    _lastAssistantResponse = text;
+    _setState(AgentState.speaking);
+    _statusMessage = '🔊 Speaking…';
+    notifyListeners();
+
+    // Let a still-playing acknowledgment finish briefly, then speak.
+    final guard = Stopwatch()..start();
+    while (_voiceService.isSpeaking &&
+        guard.elapsed < const Duration(seconds: 4)) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    final startTimer = Stopwatch()..start();
+    await _voiceService.speak(_trimForTts(text), lang: _currentLang);
+    profiler.record('tts_start', startTimer.elapsedMilliseconds);
+
+    final doneTimer = Stopwatch()..start();
+    while (_voiceService.isSpeaking &&
+        !_cancelRequested &&
+        doneTimer.elapsed < const Duration(seconds: 30)) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    profiler.record('tts_end', doneTimer.elapsedMilliseconds);
+  }
+
+  /// Keep STT/TTS language in sync with the model's language tag.
+  void _syncLanguage(String lang) {
+    if (!_supportedLangs.contains(lang) || lang == _currentLang) return;
+    _currentLang = lang;
+    unawaited(
+      SharedPreferences.getInstance().then(
+        (prefs) => prefs.setString(_langPrefKey, _currentLang),
+      ),
+    );
   }
 
   Future<void> _handleLocalCommand(
@@ -855,11 +1208,30 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
         notifyListeners();
         final timer = Stopwatch()..start();
         bool success;
+        var evidence = '';
         switch (action.type) {
           case 'open_app':
-            success = await _screenCapture.openApp(
-              action.params['package'] as String,
-            );
+            final package = action.params['package'] as String;
+            success = await _screenCapture.openApp(package);
+            // The launch call returning true is not evidence: confirm the
+            // app is actually in front before claiming it opened.
+            if (success) {
+              final canVerify = await _screenCapture.isAccessibilityEnabled();
+              if (!canVerify) {
+                evidence =
+                    ' I cannot verify the screen without the accessibility service.';
+              } else {
+                final matched = await _awaitScreen(
+                  (snapshot) => snapshot.packageName == package,
+                );
+                if (matched == null) {
+                  success = false;
+                  evidence =
+                      ' the foreground app is '
+                      '${_observer.last?.packageName ?? 'unchanged'}.';
+                }
+              }
+            }
             break;
           case 'back':
             success = await _screenCapture.pressBack();
@@ -872,15 +1244,18 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
             break;
         }
         debugPrint(
-          'Lucy[$requestId] stage=fast_action_${action.type} elapsed_ms=${timer.elapsedMilliseconds} success=$success',
+          'Lucy[$requestId] stage=fast_action_${action.type} '
+          'elapsed_ms=${timer.elapsedMilliseconds} success=$success',
         );
         final response = success
             ? switch (action.type) {
-                'open_app' => 'Opened ${command.label ?? 'the app'}.',
+                'open_app' => 'Opened ${command.label ?? 'the app'}.$evidence',
                 'back' => 'Went back.',
                 'home' => 'Went to the home screen.',
                 _ => 'Command completed.',
               }
+            : evidence.isNotEmpty
+            ? 'I could not confirm that command:$evidence'
             : 'I could not complete that command. Check that the required Android permissions are enabled.';
         _addConversation(response, false);
         _isAskingForFurtherHelp = true;
@@ -1044,43 +1419,14 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
     return null;
   }
 
-  Future<_UiSnapshot?> _fetchUiSnapshot() async {
-    try {
-      final uiTree = await _screenCapture.getUITree();
-      if (uiTree == null || uiTree.isEmpty) {
-        return null;
-      }
-
-      final parsed = jsonDecode(uiTree) as Map<String, dynamic>;
-      final elementsJson = parsed['elements'] as List<dynamic>? ?? const [];
-      final elements = elementsJson
-          .whereType<Map>()
-          .map((element) => Map<String, dynamic>.from(element))
-          .toList(growable: false);
-
-      final hasFocusedEditable = elements.any(
-        (element) => element['editable'] == true && element['focused'] == true,
-      );
-
-      return _UiSnapshot(
-        rawTree: uiTree,
-        packageName: parsed['package'] as String?,
-        elements: elements,
-        hasFocusedEditable: hasFocusedEditable,
-      );
-    } catch (e) {
-      return null;
-    }
-  }
-
-  bool _didPackageChange(_UiSnapshot? before, _UiSnapshot? after) {
+  bool _didPackageChange(UiSnapshot? before, UiSnapshot? after) {
     if (before?.packageName == null || after?.packageName == null) {
       return false;
     }
     return before!.packageName != after!.packageName;
   }
 
-  bool _didTreeSignatureChange(_UiSnapshot? before, _UiSnapshot? after) {
+  bool _didTreeSignatureChange(UiSnapshot? before, UiSnapshot? after) {
     final beforeSignature = before?.signature;
     final afterSignature = after?.signature;
     if (beforeSignature == null || afterSignature == null) {
@@ -1091,7 +1437,7 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool _tapTargetsEditableField(
     AgentAction action,
-    _UiSnapshot? beforeSnapshot,
+    UiSnapshot? beforeSnapshot,
   ) {
     final elementId = action.params['element'] as num?;
     if (elementId == null || beforeSnapshot == null) {
@@ -1147,8 +1493,8 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool _isActionReady(
     AgentAction action,
-    _UiSnapshot? beforeSnapshot,
-    _UiSnapshot? currentSnapshot,
+    UiSnapshot? beforeSnapshot,
+    UiSnapshot? currentSnapshot,
   ) {
     if (currentSnapshot == null) {
       return false;
@@ -1195,51 +1541,40 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<_UiSnapshot?> _waitForActionReadiness(
+  Future<UiSnapshot?> _waitForActionReadiness(
     AgentAction action,
-    _UiSnapshot? beforeSnapshot,
-  ) async {
+    UiSnapshot? beforeSnapshot, {
+    required bool canObserveUi,
+  }) async {
     final timeout = _readinessTimeoutForAction(action);
     if (timeout == Duration.zero) {
       return beforeSnapshot;
     }
 
-    final canObserveUi = await _screenCapture.isAccessibilityEnabled();
     if (!canObserveUi) {
       return beforeSnapshot;
     }
 
-    _UiSnapshot? latestSnapshot = beforeSnapshot;
-    final deadline = DateTime.now().add(timeout);
-
-    while (!_cancelRequested) {
-      final currentSnapshot = await _fetchUiSnapshot();
-      if (currentSnapshot != null) {
-        latestSnapshot = currentSnapshot;
-      }
-
-      if (_isActionReady(action, beforeSnapshot, currentSnapshot)) {
-        return currentSnapshot;
-      }
-
-      final remaining = deadline.difference(DateTime.now());
-      if (remaining <= Duration.zero) {
-        break;
-      }
-
-      await Future.delayed(
-        remaining < _uiPollInterval ? remaining : _uiPollInterval,
-      );
-    }
-
-    return latestSnapshot;
+    // A tap can return long before the new window renders: wait for the
+    // tree to actually change instead of sleeping a fixed amount.
+    final matched = await _observer.awaitUntil(
+      (snapshot) => _isActionReady(action, beforeSnapshot, snapshot),
+      timeout: timeout,
+      interval: _uiPollInterval,
+      isCancelled: () => _cancelRequested,
+    );
+    return matched ?? beforeSnapshot;
   }
 
   /// Execute a single agent action.
+  ///
+  /// [canObserveUi] is read once per task instead of per action so one round
+  /// trip through the platform channel is not spent on every step.
   Future<_ActionExecutionResult> _executeAction(
     AgentAction action,
-    _UiSnapshot? beforeSnapshot,
-  ) async {
+    UiSnapshot? beforeSnapshot, {
+    required bool canObserveUi,
+  }) async {
     // Actions that require the accessibility service
     const accessibilityActions = {
       'tap',
@@ -1253,8 +1588,7 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
     };
 
     if (accessibilityActions.contains(action.type)) {
-      final hasAccessibility = await _screenCapture.isAccessibilityEnabled();
-      if (!hasAccessibility) {
+      if (!canObserveUi) {
         _addConversation(
           '⚠️ Cannot execute "${action.type}" — accessibility service not enabled. '
           'Please enable it in Settings → Accessibility → Lucy.',
@@ -1282,6 +1616,7 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     var succeeded = false;
+    final dispatchTimer = Stopwatch()..start();
     try {
       switch (action.type) {
         case 'create_reminder':
@@ -1401,11 +1736,28 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
     } catch (e) {
       print('Error executing action ${action.type}: $e');
     }
+    final dispatchMs = dispatchTimer.elapsedMilliseconds;
 
-    final snapshot = succeeded
-        ? await _waitForActionReadiness(action, beforeSnapshot)
-        : beforeSnapshot;
-    return _ActionExecutionResult(snapshot, succeeded);
+    if (!succeeded) {
+      return _ActionExecutionResult(
+        beforeSnapshot,
+        false,
+        dispatchMs: dispatchMs,
+      );
+    }
+
+    final waitTimer = Stopwatch()..start();
+    final snapshot = await _waitForActionReadiness(
+      action,
+      beforeSnapshot,
+      canObserveUi: canObserveUi,
+    );
+    return _ActionExecutionResult(
+      snapshot,
+      true,
+      dispatchMs: dispatchMs,
+      waitMs: waitTimer.elapsedMilliseconds,
+    );
   }
 
   String _trimForTts(String text) {
@@ -1493,3 +1845,4 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
     super.dispose();
   }
 }
+
