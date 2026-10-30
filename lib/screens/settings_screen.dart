@@ -397,8 +397,56 @@ class SettingsScreen extends StatelessWidget {
                   DropdownMenuItem(value: 600, child: Text('10 min')),
                 ],
               ),
+            ),            const Divider(height: 32),
+
+            Text(
+              'Task agent limits (configurable)',
+              style: Theme.of(context).textTheme.titleLarge,
             ),
+            _limitsHelperRow(context, 'Actions per task', controller.maxActionsPerTask),
+            _limitsHelperRow(context, 'Reasoning steps', controller.maxInferencesPerTask),
+            _limitsHelperRow(context, 'Task time limit', controller.taskDeadline.inSeconds),
+            _limitsHelperRow(context, 'Generation timeout', controller.inferenceTimeout.inSeconds),
+
+            _limitsSectionTile(
+              context,
+              'Actions per task',
+              'Maximum device actions Lucy can run for one request. Raised limits can let a model fix errors, but they also extend a harmful sequence, so most people only raise this to recover from a real obstacle.',
+              controller.maxActionsPerTask,
+              [
+                6, 12, 24, 36,
+              ],
+            ),
+            _limitsSectionTile(
+              context,
+              'Reasoning steps',
+              'Maximum model calls for one request. Fewer steps are faster and safer; more steps let Lucy recover from failures, but more steps also raise on-device cost and the chance of repeating an unnecessary action.',
+              controller.maxInferencesPerTask,
+              [
+                4, 8, 12, 20,
+              ],
+            ),
+            _limitsSectionTile(
+              context,
+              'Task time limit',
+              'Total wall-clock limit for one request, after which Lucy stops automatically. Short limits end unrecoverable paths quickly; long limits help slow local models that need a few quiet moments.',
+              controller.taskDeadline.inSeconds,
+              [
+                60, 120, 300, 600,
+              ],
+            ),
+            _limitsSectionTile(
+              context,
+              'Generation timeout',
+              'One model generation is cancelled if it does not answer within this time, so a stuck local model never hangs the agent. Local GGUF models on small devices can need a little more time for their first token.',
+              controller.inferenceTimeout.inSeconds,
+              [
+                20, 45, 60, 120, 180,
+              ],
+            ),
+
             const Divider(height: 32),
+
             Text(
               'Privacy and battery',
               style: Theme.of(context).textTheme.titleLarge,

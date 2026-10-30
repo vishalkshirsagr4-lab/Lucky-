@@ -103,6 +103,50 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
   int _listenRetryCount = 0;
   static const int _maxListenRetries = 3;
 
+  /// Tunable from the Settings screen, persisted to SharedPreferences.
+  Future<void> setMaxActionsPerTask(int actions) async {
+    if (actions < 1 || actions > 40) {
+      throw ArgumentError.value(actions, 'actions', 'Use 1 to 40.');
+    }
+    _maxActions = actions;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_maxActionsKey, actions);
+    notifyListeners();
+  }
+
+  Future<void> setMaxInferencesPerTask(int steps) async {
+    if (steps < 1 || steps > 20) {
+      throw ArgumentError.value(steps, 'steps', 'Use 1 to 20.');
+    }
+    _maxInferences = steps;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_maxInferencesKey, steps);
+    notifyListeners();
+  }
+
+  Future<void> setTaskDeadline(Duration deadline) async {
+    final seconds = deadline.inSeconds;
+    if (seconds < 15 || seconds > 600) {
+      throw ArgumentError.value(deadline, 'deadline', '15 to 600 seconds.');
+    }
+    _taskDeadline = deadline;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_taskDeadlineKey, seconds);
+    notifyListeners();
+  }
+
+  Future<void> setInferenceTimeout(Duration timeout) async {
+    final seconds = timeout.inSeconds;
+    if (seconds < 10 || seconds > 180) {
+      throw ArgumentError.value(timeout, 'timeout', '10 to 180 seconds.');
+    }
+    _inferenceTimeout = timeout;
+    _aiService.inferenceTimeout = _inferenceTimeout;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_inferenceTimeoutKey, seconds);
+    notifyListeners();
+  }
+
   /// Configurable task limits (seconds/actions/steps), read from preferences
   /// in [initialize] so they can be tuned without a code change.
   static const String _maxActionsKey = 'lucy_max_actions';
@@ -124,6 +168,22 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
   int get maxInferencesPerTask => _maxInferences;
   Duration get taskDeadline => _taskDeadline;
   Duration get inferenceTimeout => _inferenceTimeout;
+
+  /// Tunable from the Settings screen, persisted to SharedPreferences.
+    final seconds = timeout.inSeconds;
+    if (seconds < 10 || seconds > 180) {
+      throw ArgumentError.value(
+        timeout,
+        'timeout',
+        'Must be between 10 and 180 seconds.',
+      );
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_inferenceTimeoutKey, seconds);
+    _inferenceTimeout = Duration(seconds: seconds);
+    _aiService.inferenceTimeout = _inferenceTimeout;
+    notifyListeners();
+  }
 
   static const Duration _uiPollInterval = Duration(milliseconds: 120);
   static const Duration _tapReadyTimeout = Duration(milliseconds: 900);
@@ -204,6 +264,14 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
     }
     notifyListeners();
   }
+
+  /// Estimated agent loop budget seen on the Settings screen for the current
+  /// run: action limit, inference budget, task time limit, and generation
+  /// timeout. These mirror the SharedPreferences keys so a planned run can
+  /// be described in advance.
+  String get loopLimitsSummary =>
+      '${_maxActionsPerTask}/${_maxInferencesPerTask} actions·steps '
+      'in ${_taskDeadline.inSeconds}s, gen ${_inferenceTimeout.inSeconds}s';
 
   static const Map<String, String> _followUps = {
     'en': 'Do you need any further help?',
@@ -1792,3 +1860,4 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
     super.dispose();
   }
 }
+
