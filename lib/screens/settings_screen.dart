@@ -403,10 +403,7 @@ class SettingsScreen extends StatelessWidget {
               'Task agent limits (configurable)',
               style: Theme.of(context).textTheme.titleLarge,
             ),
-            _limitsHelperRow(context, 'Actions per task', controller.maxActionsPerTask),
-            _limitsHelperRow(context, 'Reasoning steps', controller.maxInferencesPerTask),
-            _limitsHelperRow(context, 'Task time limit', controller.taskDeadline.inSeconds),
-            _limitsHelperRow(context, 'Generation timeout', controller.inferenceTimeout.inSeconds),
+            const SizedBox(height: 8),
 
             _limitsSectionTile(
               context,
@@ -434,6 +431,7 @@ class SettingsScreen extends StatelessWidget {
               [
                 60, 120, 300, 600,
               ],
+              isDuration: true,
             ),
             _limitsSectionTile(
               context,
@@ -443,6 +441,7 @@ class SettingsScreen extends StatelessWidget {
               [
                 20, 45, 60, 120, 180,
               ],
+              isDuration: true,
             ),
 
             const Divider(height: 32),
@@ -480,6 +479,63 @@ class SettingsScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// One row per tunable loop limit: what it caps, why it matters, and a
+  /// dropdown of safe values. Each change is persisted by the controller.
+  Widget _limitsSectionTile(
+    BuildContext context,
+    String title,
+    String subtitle,
+    int value,
+    List<int> options, {
+    bool isDuration = false,
+  }) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      title: Text(title),
+      subtitle: Text(
+        subtitle,
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      trailing: DropdownButton<int>(
+        value: value,
+        onChanged: (option) {
+          if (option != null) {
+            _onLimitsChanged(context, title, option);
+          }
+        },
+        items: options.map((option) {
+          final label = isDuration
+              ? (option >= 60
+                  ? '${option ~/ 60} min${option % 60 == 0 ? '' : ' ${option % 60}s'}'
+                  : '${option}s')
+              : '$option';
+          return DropdownMenuItem(value: option, child: Text(label));
+        }).toList(),
+      ),
+    );
+  }
+
+  void _onLimitsChanged(BuildContext context, String field, int value) {
+    switch (field) {
+      case 'Actions per task':
+        controller.setMaxActionsPerTask(value);
+      case 'Reasoning steps':
+        controller.setMaxInferencesPerTask(value);
+      case 'Task time limit':
+        controller.setTaskDeadline(Duration(seconds: value));
+      case 'Generation timeout':
+        controller.setInferenceTimeout(Duration(seconds: value));
+    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('$field set to $value.'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 
   String _providerDescription(AiProviderMode mode) => switch (mode) {

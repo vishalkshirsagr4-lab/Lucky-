@@ -169,21 +169,6 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
   Duration get taskDeadline => _taskDeadline;
   Duration get inferenceTimeout => _inferenceTimeout;
 
-  /// Tunable from the Settings screen, persisted to SharedPreferences.
-    final seconds = timeout.inSeconds;
-    if (seconds < 10 || seconds > 180) {
-      throw ArgumentError.value(
-        timeout,
-        'timeout',
-        'Must be between 10 and 180 seconds.',
-      );
-    }
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_inferenceTimeoutKey, seconds);
-    _inferenceTimeout = Duration(seconds: seconds);
-    _aiService.inferenceTimeout = _inferenceTimeout;
-    notifyListeners();
-  }
 
   static const Duration _uiPollInterval = Duration(milliseconds: 120);
   static const Duration _tapReadyTimeout = Duration(milliseconds: 900);
@@ -270,7 +255,7 @@ class AgentController extends ChangeNotifier with WidgetsBindingObserver {
   /// timeout. These mirror the SharedPreferences keys so a planned run can
   /// be described in advance.
   String get loopLimitsSummary =>
-      '${_maxActionsPerTask}/${_maxInferencesPerTask} actions·steps '
+      '$_maxActions actions / $_maxInferences steps '
       'in ${_taskDeadline.inSeconds}s, gen ${_inferenceTimeout.inSeconds}s';
 
   static const Map<String, String> _followUps = {
